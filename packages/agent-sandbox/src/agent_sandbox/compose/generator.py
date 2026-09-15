@@ -7,6 +7,7 @@ from typing import Sequence
 import yaml
 
 from ..config.models import EngineManifest, SandboxConfig
+from ..engines import CONTAINER_NAME_PREFIX, EngineRuntime, get_adapter, get_runtime
 from ..skills.catalog import CatalogSkillResolver
 from ..skills.directory import DirectorySkillResolver
 from .common import load_compose_common
@@ -45,6 +46,7 @@ def generate_compose_override(
     fs_root: Path,
     sandbox_dir: str = "~/.agent-sandbox",
     override_file: str | None = None,
+    engine_runtimes: Sequence[EngineRuntime] | None = None,
 ) -> str:
     """
     Dynamically generates docker-compose.override.yml configuration for all active engines.
@@ -69,16 +71,24 @@ def generate_compose_override(
         service_entry = common.as_service_fragment(build_context=norm_repo)
 
         # Engine identity on the Docker host network
-        service_entry["container_name"] = f"agent-sandbox-{engine.name}"
-        service_entry["hostname"] = f"agent-sandbox-{engine.name}"
+        service_entry["container_name"] = f"{CONTAINER_NAME_PREFIX}{engine.name}"
+        service_entry["hostname"] = f"{CONTAINER_NAME_PREFIX}{engine.name}"
 
         # Web port forwards (common dev ports + the engine's own port)
         service_entry["ports"] = common_ports + [f"127.0.0.1:{engine.port}:{engine.port}"]
 
-        # Runtime environment
+        # Runtime environment (generic identity + per-engine adapter env, no engine branches)
         env_items = [f"ENGINE={engine.name}"]
         if engine.skills and engine.skills.target_dir:
             env_items.append(f"SANDBOX_SKILLS_TARGET={_to_container_path(engine.skills.target_dir)}")
+        if engine_runtimes is None:
+            # No parse-once runtimes passed (e.g. older callers/tests): use the
+            # adapter default. Unknown engine names raise KeyError here.
+            _adapter = get_adapter(engine.name)
+            env_items.extend(_adapter.compose_env(_adapter.default_config()))
+        else:
+            runtime = get_runtime(engine_runtimes, engine.name)
+            env_items.extend(runtime.adapter.compose_env(runtime.config))
         env_items.extend(common_env)
         service_entry["environment"] = env_items
 

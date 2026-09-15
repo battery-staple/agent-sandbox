@@ -13,7 +13,7 @@ from .config.loader import load_sandbox_config, save_sandbox_config
 from .config.models import EngineManifest, SandboxConfig
 from .compose.generator import generate_compose_override
 from .compose.rules import compile_rules_for_engine
-from .compose.volumes import migrate_antigravity_volume_if_needed
+from .engines import all_adapters, get_runtime, load_all_runtimes, resolve_engine_name, runtimes_for_active, scaffold_all
 from .registry.engines import discover_engines
 from .skills.catalog import CatalogSkillResolver
 from .skills.directory import DirectorySkillResolver
@@ -74,6 +74,8 @@ class SandboxCLI:
         for d in scaffold_dirs:
             os.makedirs(d, exist_ok=True)
 
+        scaffold_all(Path(self.sandbox_dir), Path(self.repo_root))
+
         try:
             os.chmod(self.ipc_dir, 0o700)
         except Exception:
@@ -94,6 +96,16 @@ class SandboxCLI:
             config = load_sandbox_config(self.config_file)
 
         return config
+
+    def load_engine_runtimes(self):
+        """Parses every engine's user config exactly once (typed, fail fast)."""
+        self.ensure_scaffolding()
+        return load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
+
+    def run_legacy_engine_migrations(self) -> None:
+        """Runs engine-owned legacy migrations via generic adapter hook."""
+        for adapter in all_adapters():
+            adapter.run_legacy_migrations()
 
     def migrate_legacy_state(self, legacy_dir: str | None = None) -> None:
         """Copy legacy state once, before the canonical state directory is created."""
@@ -223,8 +235,13 @@ class SandboxCLI:
                 except OSError:
                     pass
 
-    def get_running_engines(self) -> list[str]:
-        """Queries Docker for currently running agent sandbox containers."""
+    def get_running_engines(self) -> tuple[EngineManifest, ...]:
+        """Queries Docker for currently running agent sandbox containers.
+
+        Returns resolved manifests. A container wearing our prefix that maps to
+        no registered engine raises KeyError (unexpected tooling/reality drift).
+        Docker being unreachable degrades to empty, as before.
+        """
         try:
             res = subprocess.run(
                 ["docker", "ps", "--format", "{{.Names}}"],
@@ -232,19 +249,16 @@ class SandboxCLI:
                 text=True,
                 check=False,
             )
-            if res.returncode == 0:
-                names = res.stdout.splitlines()
-                running = []
-                for n in names:
-                    n = n.strip()
-                    if n.startswith("agent-sandbox-"):
-                        running.append(n[len("agent-sandbox-"):])
-                    elif n == "antigravity-sandbox":
-                        running.append("antigravity")
-                return running
         except Exception:
-            pass
-        return []
+            return ()
+        if res.returncode != 0:
+            return ()
+        names = [
+            name
+            for line in res.stdout.splitlines()
+            if (name := resolve_engine_name(line)) is not None
+        ]
+        return tuple(self.registry.resolve_active(names))
 
     # Command Handlers
     def cmd_start(self, engines: list[str], no_host_bridge: bool = False) -> int:
@@ -254,13 +268,17 @@ class SandboxCLI:
             return 1
 
         config = self.ensure_scaffolding()
-        migrate_antigravity_volume_if_needed()
+        self.run_legacy_engine_migrations()
+
+        # Parse-once: engine user configs loaded a single time for this command.
+        all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
 
         active = self.registry.resolve_active(engines)
         if not active:
             print("[Sandbox Error] No valid engines resolved to start.", file=sys.stderr)
             return 1
 
+        active_runtimes = runtimes_for_active(active, all_runtimes)
         active_names = [e.name for e in active]
         print(f"[Sandbox] Preparing engines: {', '.join(active_names)}")
 
@@ -276,6 +294,7 @@ class SandboxCLI:
             sandbox_dir=self.sandbox_dir,
             override_file=self.override_file,
             fs_root=self.fs_root,
+            engine_runtimes=active_runtimes,
         )
 
         # 3. Host bridge
@@ -307,6 +326,8 @@ class SandboxCLI:
     def cmd_build(self, engines: list[str] | None = None) -> int:
         config = self.ensure_scaffolding()
         active = self.registry.resolve_active(engines) if engines else self.registry.list_all()
+        all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
+        active_runtimes = runtimes_for_active(active, all_runtimes)
         generate_compose_override(
             active_engines=active,
             config=config,
@@ -314,21 +335,26 @@ class SandboxCLI:
             sandbox_dir=self.sandbox_dir,
             override_file=self.override_file,
             fs_root=self.fs_root,
+            engine_runtimes=active_runtimes,
         )
         print("[Sandbox] Building/Rebuilding container image from Dockerfile.sandbox...")
         return self.run_compose(["build"])
 
     def cmd_status(self) -> int:
         config = self.ensure_scaffolding()
+        all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
         print("==========================================================")
         print("  Agent Sandbox Status")
         print("==========================================================")
         running = self.get_running_engines()
-        all_engines = self.registry.list_all()
-        print(f"Available Engines ({len(all_engines)}):")
-        for e in all_engines:
-            state = "RUNNING" if e.name in running else "STOPPED"
-            print(f"  - {e.name:<14} [{state:<7}] URL: {e.web_url}")
+        running_names = {m.name for m in running}
+        print(f"Available Engines ({len(all_runtimes)}):")
+        for runtime in all_runtimes:
+            manifest = runtime.manifest
+            state = "RUNNING" if manifest.name in running_names else "STOPPED"
+            print(f"  - {manifest.name:<14} [{state:<7}] URL: {manifest.web_url}")
+            for line in runtime.adapter.status_lines(runtime.config):
+                print(f"      {line}")
 
         hb_pid = self.get_host_bridge_pid()
         hb_state = f"Active (PID: {hb_pid}, port 58433)" if hb_pid else "Inactive"
@@ -344,16 +370,18 @@ class SandboxCLI:
         return 0
 
     def cmd_ui(self, engine_name: str | None = None) -> int:
-        config = self.ensure_scaffolding()
+        self.ensure_scaffolding()
+        all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
         running = self.get_running_engines()
 
         target_engine: EngineManifest | None = None
         if engine_name:
             target_engine = self.registry.get(engine_name)
         elif len(running) == 1:
-            target_engine = self.registry.get(running[0])
+            target_engine = running[0]
         elif len(running) > 1:
-            print(f"[Sandbox Error] Multiple engines are running ({', '.join(running)}). Please specify which engine UI to open (e.g. agent-sandbox ui {running[0]}).", file=sys.stderr)
+            names = ", ".join(e.name for e in running)
+            print(f"[Sandbox Error] Multiple engines are running ({names}). Please specify which engine UI to open (e.g. agent-sandbox ui {running[0].name}).", file=sys.stderr)
             return 1
         else:
             available = ", ".join(e.name for e in self.registry.list_all())
@@ -364,12 +392,15 @@ class SandboxCLI:
             print("[Sandbox Error] No engine found to open UI.", file=sys.stderr)
             return 1
 
-        if target_engine.name not in running:
+        if target_engine not in running:
             print(f"[Sandbox] Engine '{target_engine.name}' is not running. Starting...")
             self.cmd_start([target_engine.name])
 
         url = target_engine.web_url
         print(f"[Sandbox] Opening {target_engine.name} Web UI ({url})...")
+        runtime = get_runtime(all_runtimes, target_engine.name)
+        for line in runtime.adapter.status_lines(runtime.config):
+            print(f"[Sandbox] {target_engine.name} {line}")
         if sys.platform == "darwin":
             subprocess.run(["open", url], check=False)
         else:
@@ -406,7 +437,7 @@ class SandboxCLI:
         running = self.get_running_engines()
         if running:
             print("[Sandbox] Updating running containers with new workspace mount...")
-            self.cmd_start(running)
+            self.cmd_start([e.name for e in running])
         return 0
 
     def cmd_workspace_remove(self, path: str) -> int:
@@ -428,7 +459,7 @@ class SandboxCLI:
         running = self.get_running_engines()
         if running:
             print("[Sandbox] Updating running containers...")
-            self.cmd_start(running)
+            self.cmd_start([e.name for e in running])
         return 0
 
     def cmd_workspace_list(self) -> int:
