@@ -1,0 +1,6 @@
+# OpenCode engine config (user-local, NOT tracked by git).
+# Parsed exactly once by packages/agent-sandbox/src/agent_sandbox/engines/opencode.py.
+# Empty/null password = V2 generated per-boot password (see `docker logs agent-sandbox-opencode`).
+server:
+  username: opencode
+  password: null

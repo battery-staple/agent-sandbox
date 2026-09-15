@@ -9,4 +9,4 @@ echo "  Web UI Port     : 4096 (0.0.0.0)"
 echo "  Workspace Mount : /workspace"
 echo "=========================================================="
 
-exec opencode web --hostname 0.0.0.0 --port 4096 "$@"
+exec opencode serve --hostname 0.0.0.0 --port 4096 "$@"

@@ -141,11 +141,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends openjdk-21-jdk 
 # ------------------------------------------------------------------------------
 # Copies engine adapter definitions and runs each engine's install.sh dynamically.
 ARG TARGETARCH
+ARG OPENCODE_VERSION=latest
 COPY engines /etc/sandbox/engines
 RUN chmod +x /etc/sandbox/engines/*/install.sh \
     && for install_script in /etc/sandbox/engines/*/install.sh; do \
         echo "Running engine installer: $install_script"; \
-        TARGETARCH="${TARGETARCH}" "$install_script"; \
+        TARGETARCH="${TARGETARCH}" OPENCODE_VERSION="${OPENCODE_VERSION}" "$install_script"; \
     done
 
 # ------------------------------------------------------------------------------
