@@ -1,0 +1,12 @@
+name: opencode
+port: 4096
+web_url: http://127.0.0.1:4096
+rules:
+  target_file: ~/.config/opencode/AGENTS.md
+  host_sources:
+    - ~/.config/opencode/AGENTS.md
+    - ~/AGENTS.md
+skills:
+  target_dir: ~/.config/opencode/skills
+mounts:
+  - ~/.config/opencode

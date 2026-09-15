@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -e
+echo "[DEPRECATION WARNING] 'antigravity-sandbox' has been renamed to 'agent-sandbox'. Please update your scripts and aliases." >&2
+exec "$(dirname "$0")/agent-sandbox" "$@"

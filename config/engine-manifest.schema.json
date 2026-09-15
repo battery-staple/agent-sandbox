@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-sandbox.dev/schemas/engine-manifest.schema.json",
+  "title": "EngineManifest",
+  "description": "Formal schema for agent sandbox engine manifests.",
+  "type": "object",
+  "required": [
+    "name",
+    "port",
+    "web_url"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$",
+      "description": "Unique canonical identifier of the engine; must match its directory name."
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "The primary network port exposed by this engine."
+    },
+    "web_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Web entrypoint URL launched by the 'ui' command."
+    },
+    "rules": {
+      "type": "object",
+      "required": [
+        "target_file"
+      ],
+      "properties": {
+        "target_file": {
+          "type": "string",
+          "description": "Target container file path where compiled rules are mounted."
+        },
+        "host_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of host paths scanned for global rules to merge into target_file."
+        }
+      },
+      "additionalProperties": false
+    },
+    "skills": {
+      "type": "object",
+      "required": [
+        "target_dir"
+      ],
+      "properties": {
+        "target_dir": {
+          "type": "string",
+          "description": "Container directory where skills are installed or mounted."
+        },
+        "catalogs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Catalog files scanned for skill definitions (e.g. skills.json)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "mounts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of host configuration directories or files to bind-mount into the container if present."
+    }
+  },
+  "additionalProperties": false
+}

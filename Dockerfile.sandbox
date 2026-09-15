@@ -137,27 +137,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends openjdk-21-jdk 
     && chmod +x /usr/local/bin/google-java-format
 
 # ------------------------------------------------------------------------------
-# 6. Antigravity Language Server Backend
+# 6. Pluggable Sandbox Engines Installation
 # ------------------------------------------------------------------------------
-# Downloads official Antigravity distribution package, extracts the Linux
-# language_server binary, and installs it to /usr/local/bin/language_server.
+# Copies engine adapter definitions and runs each engine's install.sh dynamically.
 ARG TARGETARCH
-RUN LS_ARCH=${TARGETARCH:-arm64} && \
-    if [ "$LS_ARCH" = "amd64" ]; then \
-        LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.8.1-6512087774658560/linux-x64/Antigravity.tar.gz"; \
-    else \
-        LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.8.1-6512087774658560/linux-arm/Antigravity.tar.gz"; \
-    fi && \
-    TEMP_DIR=$(mktemp -d) && \
-    curl -fsSL "$LS_URL" -o "$TEMP_DIR/Antigravity.tar.gz" && \
-    tar -xzf "$TEMP_DIR/Antigravity.tar.gz" -C "$TEMP_DIR" && \
-    FOUND_BIN=$(find "$TEMP_DIR" -type f \( -name "language_server" -o -name "language_server_linux_arm" -o -name "language_server_linux_x64" -o -name "language_server_linux_arm64" \) | head -n 1) && \
-    if [ -z "$FOUND_BIN" ]; then \
-        FOUND_BIN=$(find "$TEMP_DIR" -type f -exec grep -lI '^.ELF' {} + | head -n 1); \
-    fi && \
-    cp "$FOUND_BIN" /usr/local/bin/language_server && \
-    chmod +x /usr/local/bin/language_server && \
-    rm -rf "$TEMP_DIR"
+COPY engines /etc/sandbox/engines
+RUN chmod +x /etc/sandbox/engines/*/install.sh \
+    && for install_script in /etc/sandbox/engines/*/install.sh; do \
+        echo "Running engine installer: $install_script"; \
+        TARGETARCH="${TARGETARCH}" "$install_script"; \
+    done
 
 # ------------------------------------------------------------------------------
 # 7. Developer User & Permission Setup
@@ -185,21 +174,19 @@ RUN if getent group $USER_GID >/dev/null 2>&1; then \
 # ------------------------------------------------------------------------------
 # Pre-create all required directory hierarchies for the developer user:
 # - /workspace: Mount target for the host project directory (via VirtioFS)
-# - /home/$USERNAME/.gemini/antigravity: Antigravity agent state & logs
 # - /home/$USERNAME/.npm-global: Rootless global npm package installations
 # - /home/$USERNAME/go/bin: User Go binaries
 # - /home/$USERNAME/.gradle: Gradle dependency & build cache
 # - /var/run/host-exec: Host-Exec bridge auth secret directory
-# - /etc/antigravity/customizations: Image templates for agent rules & skills
+# - /etc/sandbox/customizations: Image templates for agent rules & skills
 RUN mkdir -p \
     /workspace \
-    /home/$USERNAME/.gemini/antigravity \
     /home/$USERNAME/.npm-global \
     /home/$USERNAME/go/bin \
     /home/$USERNAME/.gradle \
     /var/run/host-exec \
-    /etc/antigravity/customizations \
-    && chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME /var/run/host-exec
+    /etc/sandbox/customizations \
+    && chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME /var/run/host-exec /etc/sandbox
 
 # ------------------------------------------------------------------------------
 # 9. Environment Variables for Developer User
@@ -217,12 +204,12 @@ ENV WORKSPACE="/workspace"
 # 10. Agent Customizations & Host Bridge Installation
 # ------------------------------------------------------------------------------
 # Copy agent environment awareness rule and host-exec skill into image templates
-COPY customizations /etc/antigravity/customizations
+COPY customizations /etc/sandbox/customizations
 
 # Install container entrypoint, host-exec guest CLI bridge, and browser xdg-open bridge
-COPY security/entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
-COPY bin/host-exec /usr/local/bin/host-exec
-COPY bin/xdg-open /usr/local/bin/xdg-open
+COPY guest/entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
+COPY guest/bin/host-exec /usr/local/bin/host-exec
+COPY guest/bin/xdg-open /usr/local/bin/xdg-open
 RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/local/bin/xdg-open
 
 # ------------------------------------------------------------------------------
@@ -230,8 +217,5 @@ RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/
 # ------------------------------------------------------------------------------
 WORKDIR /workspace
 USER $USERNAME
-
-# Expose Antigravity Language Server port (loopback bound by docker-compose)
-EXPOSE 58432
 
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]

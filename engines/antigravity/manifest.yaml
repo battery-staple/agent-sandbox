@@ -1,0 +1,14 @@
+name: antigravity
+port: 58432
+web_url: https://localhost:58432
+rules:
+  target_file: ~/.gemini/GEMINI.md
+  host_sources:
+    - ~/.gemini/GEMINI.md
+skills:
+  target_dir: /home/developer/.gemini/antigravity/builtin/skills
+  catalogs:
+    - ~/.gemini/config/skills.json
+    - .agents/skills.json
+mounts:
+  - ~/.gemini

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -e
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+REPO_ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+export AGENT_SANDBOX_REPO_ROOT="$REPO_ROOT"
+
+SANDBOX_DIR="${AGENT_SANDBOX_DIR:-$HOME/.agent-sandbox}"
+VENV_DIR="$SANDBOX_DIR/.venv"
+VENV_PY="$VENV_DIR/bin/python3"
+
+# Fallback: check legacy sandbox dir
+if [ ! -d "$SANDBOX_DIR" ] && [ -d "$HOME/.antigravity-sandbox" ]; then
+  LEGACY_PY="$HOME/.antigravity-sandbox/.venv/bin/python3"
+  if [ -x "$LEGACY_PY" ]; then
+    VENV_PY="$LEGACY_PY"
+  fi
+fi
+
+if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c "import yaml" 2>/dev/null; then
+  HOST_PY="$(which python3 2>/dev/null || true)"
+  if [ -z "$HOST_PY" ]; then
+    echo "[Sandbox Error] Python 3 is required on host." >&2
+    exit 1
+  fi
+  mkdir -p "$SANDBOX_DIR" 2>/dev/null || true
+  if [ ! -x "$VENV_PY" ]; then
+    "$HOST_PY" -m venv "$VENV_DIR" 2>/dev/null || true
+  fi
+  if [ -x "$VENV_PY" ]; then
+    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check pyyaml 2>/dev/null || true
+  else
+    VENV_PY="$HOST_PY"
+  fi
+fi
+
+export PYTHONPATH="$REPO_ROOT/packages/agent-sandbox/src:$REPO_ROOT/packages/host-exec-daemon:$PYTHONPATH"
+exec "$VENV_PY" -m agent_sandbox.cli "$@"

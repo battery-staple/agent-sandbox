@@ -1,0 +1,33 @@
+# Engine-agnostic docker compose service fragment.
+# Merged into every generated engine service in ~/.agent-sandbox/docker-compose.override.yml.
+# Tune shared runtime defaults (caps, resources, shared memory, dev ports) here.
+x-sandbox-common:
+  image: agent-sandbox:latest
+  build:
+    context: .
+    dockerfile: Dockerfile.sandbox
+    args:
+      USER_UID: ${HOST_UID:-1000}
+      USER_GID: ${HOST_GID:-1000}
+  restart: unless-stopped
+  shm_size: '2gb' # Expanded shared memory for headless Chromium browser automation
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - NET_BIND_SERVICE
+  deploy:
+    resources:
+      limits:
+        cpus: '${SANDBOX_CPUS:-4.0}'
+        memory: '${SANDBOX_MEM:-8GB}'
+        pids: 1024
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  ports: []
+  environment:
+    - HOST_EXEC_HOST=host.docker.internal
+    - HOST_EXEC_PORT=58433

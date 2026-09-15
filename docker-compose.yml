@@ -1,60 +1,10 @@
-services:
-  antigravity-sandbox:
-    image: antigravity-sandbox:latest
-    build:
-      context: .
-      dockerfile: Dockerfile.sandbox
-      args:
-        USER_UID: ${HOST_UID:-1000}
-        USER_GID: ${HOST_GID:-1000}
-    container_name: antigravity-sandbox
-    hostname: antigravity-sandbox
-    restart: unless-stopped
-    shm_size: '2gb' # Expanded shared memory for headless Chromium browser automation
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - DAC_OVERRIDE
-      - NET_BIND_SERVICE
-    deploy:
-      resources:
-        limits:
-          cpus: '${SANDBOX_CPUS:-4.0}'
-          memory: '${SANDBOX_MEM:-8GB}'
-          pids: 1024
-    environment:
-      - HOST_EXEC_HOST=host.docker.internal
-      - HOST_EXEC_PORT=58433
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      # Antigravity Language Server Backend & Web UI
-      - "127.0.0.1:58432:58432"
-      # Common Web Development Server Ports (accessible to host browser)
-      - "127.0.0.1:3000-3005:3000-3005"
-      - "127.0.0.1:5173:5173"
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8081:8081"
-    volumes:
-      # Shared Antigravity configuration, OAuth tokens, and conversation history with host
-      - type: bind
-        source: ${HOST_GEMINI_DIR:-${HOME}/.gemini}
-        target: /home/developer/.gemini
-      # Mount compiled sandbox GEMINI.md over ~/.gemini/GEMINI.md (isolates container rules from host)
-      - type: bind
-        source: ${HOST_SANDBOX_GEMINI:-${HOST_SANDBOX_DIR:-${HOME}/.antigravity-sandbox}/GEMINI.md}
-        target: /home/developer/.gemini/GEMINI.md
-      # Persistent user data, dotfiles, tool caches, and agent state
-      - antigravity_home_persist:/home/developer
-      # Host-Exec shared auth secret directory
-      - type: bind
-        source: ${HOST_IPC_PATH:-${HOME}/.antigravity-sandbox/ipc}
-        target: /var/run/host-exec
-        read_only: true
+name: agent-sandbox
 
-volumes:
-  antigravity_home_persist:
-    name: antigravity_home_persist
+# Engine services are NOT declared here. They are generated at runtime by
+# `bin/agent-sandbox` into ~/.agent-sandbox/docker-compose.override.yml from:
+#   - engines/<name>/manifest.yaml       (per-engine: port, mounts, skills, rules)
+#   - config/compose.common.yaml         (engine-agnostic defaults, merged into every service)
+# This file intentionally contains zero engine-specific content.
+
+services: {}
+volumes: {}
