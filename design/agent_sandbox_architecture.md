@@ -203,20 +203,30 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
    ```
 
 3. **Create `engines/<name>/install.sh`**:
-   Must download the binary for arm64/amd64 and install to `/usr/local/bin/<name>` (`chmod +x`).
+   Must install the engine binary to `/usr/local/bin/<name>` (`chmod +x`), fail fast with
+   `[Sandbox Error]` on failure. Use the engine's supported distribution channel
+   (e.g. OpenCode V2: Node-only `npm install -g @opencode/cli@$OPENCODE_VERSION`).
 
 4. **Create `engines/<name>/entrypoint.sh`**:
-   Must start the engine server or web process:
+   Must start the engine server in the foreground (Docker-supervised). OpenCode V2 example:
    ```bash
    #!/usr/bin/env bash
    set -e
-   exec <name> --port <port> "$@"
+   exec opencode serve --hostname 0.0.0.0 --port 4096 "$@"
    ```
+   (`opencode web` was removed in V2; `serve` is the API+web server.)
 
-5. **(Optional) Add Engine-Specific Built-in Rules**:
+5. **(Optional) Add a per-engine user config adapter**:
+   Engine-specific runtime settings (e.g. OpenCode `server.username/password` in
+   `~/.agent-sandbox/<name>/config.yaml`) live in `packages/agent-sandbox/src/agent_sandbox/engines/<name>.py`
+   behind the generic `EngineAdapter` interface (`parse_user_config` once, `compose_env`,
+   `status_lines`, `scaffold`). Generic code (`cli.py`, `compose/generator.py`) must never
+   branch on engine names; adding a new engine shape touches only its adapter module.
+
+6. **(Optional) Add Engine-Specific Built-in Rules**:
    Add any engine-specific guidance (e.g. tool calling conventions or engine security policies) to `engines/<name>/rules/*.md`.
 
-6. **Rebuild Container**:
+7. **Rebuild Container**:
    ```bash
    bin/agent-sandbox build
    bin/agent-sandbox start <name>
