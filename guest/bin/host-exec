@@ -11,9 +11,25 @@ import os
 import socket
 import sys
 
-HOST_EXEC_HOST = os.environ.get("HOST_EXEC_HOST", "host.docker.internal")
-HOST_EXEC_PORT = int(os.environ.get("HOST_EXEC_PORT", "58433"))
+HOST_EXEC_HOST = os.environ.get("HOST_EXEC_HOST")
+HOST_EXEC_PORT = os.environ.get("HOST_EXEC_PORT")
 AUTH_SECRET_FILE = "/var/run/host-exec/auth_secret.key"
+
+
+def validate_runtime_config() -> None:
+    """Require the container runtime to provide the bridge endpoint explicitly."""
+    global HOST_EXEC_PORT
+
+    if not HOST_EXEC_HOST:
+        raise ValueError("HOST_EXEC_HOST is not set")
+    if not HOST_EXEC_PORT:
+        raise ValueError("HOST_EXEC_PORT is not set")
+    try:
+        HOST_EXEC_PORT = int(HOST_EXEC_PORT)
+    except ValueError as exc:
+        raise ValueError("HOST_EXEC_PORT must be an integer") from exc
+    if not 1 <= HOST_EXEC_PORT <= 65535:
+        raise ValueError("HOST_EXEC_PORT must be between 1 and 65535")
 
 
 def get_auth_secret() -> str:
@@ -24,7 +40,6 @@ def get_auth_secret() -> str:
 
     secret_candidates = [
         AUTH_SECRET_FILE,
-        os.path.expanduser("~/.antigravity-sandbox/ipc/auth_secret.key"),
     ]
     for candidate in secret_candidates:
         if os.path.exists(candidate):
@@ -42,7 +57,7 @@ def format_capabilities(commands_dict: dict) -> str:
     """Format whitelisted commands into a clean human/agent-readable table."""
     out = [
         "=" * 80,
-        "AVAILABLE HOST COMMANDS (~/.antigravity-sandbox/whitelist.yaml)",
+        "AVAILABLE HOST COMMANDS (~/.agent-sandbox/whitelist.yaml)",
         "=" * 80,
     ]
     if not commands_dict:
@@ -70,22 +85,14 @@ def format_capabilities(commands_dict: dict) -> str:
 
 def connect_to_daemon():
     """Attempt TCP connection to host."""
-    target_host = HOST_EXEC_HOST or "host.docker.internal"
-    hosts_to_try = [target_host]
-    if target_host != "127.0.0.1":
-        hosts_to_try.append("127.0.0.1")
-
-    for h in hosts_to_try:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1.0)
-            s.connect((h, HOST_EXEC_PORT))
-            s.settimeout(None)
-            return s
-        except Exception:
-            continue
-
-    return None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect((HOST_EXEC_HOST, HOST_EXEC_PORT))
+        s.settimeout(None)
+        return s
+    except Exception:
+        return None
 
 
 def print_daemon_offline_error(full_cmd_str: str):
@@ -100,8 +107,8 @@ def print_daemon_offline_error(full_cmd_str: str):
         f"1. Do NOT retry this command in an automated loop.\n"
         f"2. Inform the user that this command requires execution on their macOS host, but the host bridge daemon is not currently running.\n"
         f"3. Ask the user to start the host bridge daemon by running the following command in their host macOS terminal:\n\n"
-        f"       antigravity-sandbox host-bridge\n\n"
-        f"   (or: ./scripts/antigravity-sandbox host-bridge)\n\n"
+        f"       agent-sandbox host-bridge\n\n"
+        f"   (or: ./bin/agent-sandbox host-bridge)\n\n"
         f"4. Once the user confirms the host bridge daemon is running, retry the command.\n"
         f"================================================================================\n",
         file=sys.stderr,
@@ -117,6 +124,12 @@ def main():
     cmd = sys.argv[1]
     args = sys.argv[2:] if not is_list_query else []
     full_cmd_str = f"{cmd} {' '.join(args)}".strip() if not is_list_query else "host-exec --list"
+
+    try:
+        validate_runtime_config()
+    except ValueError as exc:
+        print(f"[HOST-EXEC CONFIG ERROR] {exc}", file=sys.stderr)
+        sys.exit(78)
 
     secret = get_auth_secret()
     if not secret:
@@ -185,7 +198,7 @@ def main():
                 print(
                     f"REMEDIATION STEPS FOR THE AGENT:\n"
                     f"1. Run 'host-exec --list' to see all permitted macOS commands and allowed argument patterns.\n"
-                    f"2. Instruct the user to update 'allowed_commands' in '~/.antigravity-sandbox/whitelist.yaml' on their macOS host if they wish to permit '{cmd}'.\n"
+                    f"2. Instruct the user to update 'allowed_commands' in '~/.agent-sandbox/whitelist.yaml' on their macOS host if they wish to permit '{cmd}'.\n"
                     f"================================================================================\n",
                     file=sys.stderr,
                 )

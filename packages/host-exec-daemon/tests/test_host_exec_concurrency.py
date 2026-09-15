@@ -15,9 +15,8 @@ import time
 import unittest
 import yaml
 
-REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BRIDGE_DIR = os.path.join(REPO_DIR, "bridge")
-sys.path.insert(0, BRIDGE_DIR)
+PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, PACKAGE_DIR)
 
 import host_exec_daemon
 

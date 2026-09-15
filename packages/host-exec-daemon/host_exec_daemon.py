@@ -20,15 +20,29 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-STATE_DIR = os.environ.get("ANTIGRAVITY_STATE_DIR", os.path.expanduser("~/.antigravity-sandbox"))
+STATE_DIR = os.environ.get("AGENT_SANDBOX_STATE_DIR", os.path.expanduser("~/.agent-sandbox"))
 IPC_DIR = os.path.join(STATE_DIR, "ipc")
 LOGS_DIR = os.path.join(STATE_DIR, "logs")
 PID_FILE_PATH = os.path.join(IPC_DIR, "host-bridge.pid")
 AUTH_SECRET_PATH = os.path.join(IPC_DIR, "auth_secret.key")
 WHITELIST_PATH = os.path.join(STATE_DIR, "whitelist.yaml")
 HOST_EXEC_BIND = os.environ.get("HOST_EXEC_BIND", "0.0.0.0")
-HOST_EXEC_PORT = int(os.environ.get("HOST_EXEC_PORT", "58433"))
+HOST_EXEC_PORT: Optional[int] = None
 MAX_CONCURRENT_HOST_PROCESSES = int(os.environ.get("MAX_CONCURRENT_HOST_PROCESSES", "16"))
+
+
+def get_required_port() -> int:
+    """Read the bridge port from the runtime environment without a fallback."""
+    value = os.environ.get("HOST_EXEC_PORT")
+    if not value:
+        raise RuntimeError("HOST_EXEC_PORT is not set")
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise RuntimeError("HOST_EXEC_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise RuntimeError("HOST_EXEC_PORT must be between 1 and 65535")
+    return port
 
 # Ensure required state directories exist
 os.makedirs(IPC_DIR, exist_ok=True)
@@ -489,7 +503,7 @@ class HostExecServer:
                 await self.send_json(writer, {
                     "status": "error",
                     "error_type": "not_whitelisted",
-                    "message": f"Command '{command_name}' is not whitelisted on host (~/.antigravity-sandbox/whitelist.yaml)",
+                    "message": f"Command '{command_name}' is not whitelisted on host (~/.agent-sandbox/whitelist.yaml)",
                 })
                 return
 
@@ -504,7 +518,7 @@ class HostExecServer:
                 await self.send_json(writer, {
                     "status": "error",
                     "error_type": "args_violation",
-                    "message": f"Command arguments '{args_str}' violated whitelist pattern ({args_regex}) in ~/.antigravity-sandbox/whitelist.yaml",
+                    "message": f"Command arguments '{args_str}' violated whitelist pattern ({args_regex}) in ~/.agent-sandbox/whitelist.yaml",
                 })
                 return
 
@@ -610,6 +624,8 @@ def terminate_all_active_processes():
 
 async def main_async():
     """Asynchronous entrypoint running TCP server."""
+    global HOST_EXEC_PORT
+    HOST_EXEC_PORT = get_required_port()
     secret = get_or_create_secret()
     server_instance = get_default_server(secret)
     initial_whitelist = load_whitelist()

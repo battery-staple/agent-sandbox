@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for bridge/host_exec_daemon.py
+Unit tests for packages/host-exec-daemon/host_exec_daemon.py
 """
 
 import hashlib
@@ -13,13 +13,14 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-# Add bridge directory to sys.path
-REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(REPO_DIR, "bridge"))
+# Add package directory to sys.path
+PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, PACKAGE_DIR)
 
 from host_exec_daemon import (
     format_log_prefix,
     get_command_description,
+    get_required_port,
     get_or_create_secret,
     prompt_user_approval_async,
     resolve_cwd,
@@ -103,20 +104,49 @@ class TestCommandDescription(unittest.TestCase):
 class TestSecretLifecycle(unittest.TestCase):
     def test_get_or_create_secret_creates_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            orig_ipc = os.environ.get("ANTIGRAVITY_STATE_DIR")
+            orig_state = os.environ.get("AGENT_SANDBOX_STATE_DIR")
+            import host_exec_daemon
+            orig_ipc_dir = host_exec_daemon.IPC_DIR
+            orig_secret_path = host_exec_daemon.AUTH_SECRET_PATH
             try:
-                os.environ["ANTIGRAVITY_STATE_DIR"] = tmpdir
-                # Re-import or run with patched path
+                os.environ["AGENT_SANDBOX_STATE_DIR"] = tmpdir
+                host_exec_daemon.IPC_DIR = os.path.join(tmpdir, "ipc")
+                host_exec_daemon.AUTH_SECRET_PATH = os.path.join(host_exec_daemon.IPC_DIR, "auth_secret.key")
                 secret = get_or_create_secret()
                 self.assertTrue(len(secret) >= 32)
                 # Second call returns same secret
                 secret2 = get_or_create_secret()
                 self.assertEqual(secret, secret2)
             finally:
-                if orig_ipc:
-                    os.environ["ANTIGRAVITY_STATE_DIR"] = orig_ipc
+                if orig_state:
+                    os.environ["AGENT_SANDBOX_STATE_DIR"] = orig_state
                 else:
-                    os.environ.pop("ANTIGRAVITY_STATE_DIR", None)
+                    os.environ.pop("AGENT_SANDBOX_STATE_DIR", None)
+                host_exec_daemon.IPC_DIR = orig_ipc_dir
+                host_exec_daemon.AUTH_SECRET_PATH = orig_secret_path
+
+
+class TestRuntimeConfig(unittest.TestCase):
+    def test_port_is_required(self):
+        original = os.environ.pop("HOST_EXEC_PORT", None)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "HOST_EXEC_PORT is not set"):
+                get_required_port()
+        finally:
+            if original is not None:
+                os.environ["HOST_EXEC_PORT"] = original
+
+    def test_port_is_validated(self):
+        original = os.environ.get("HOST_EXEC_PORT")
+        try:
+            os.environ["HOST_EXEC_PORT"] = "not-a-port"
+            with self.assertRaisesRegex(RuntimeError, "must be an integer"):
+                get_required_port()
+        finally:
+            if original is None:
+                os.environ.pop("HOST_EXEC_PORT", None)
+            else:
+                os.environ["HOST_EXEC_PORT"] = original
 
 
 class TestFormatLogPrefix(unittest.TestCase):
