@@ -3,7 +3,7 @@
 .host-exec/
 docker-compose.override.yml
 
-# Whitelist template is tracked, local overrides in ~/.antigravity-sandbox/
+# Whitelist template is tracked, local overrides in ~/.agent-sandbox/
 config/whitelist.yaml
 config/whitelist.yml
 config/whitelist.json
@@ -16,3 +16,4 @@ __pycache__/
 
 # macOS system files
 .DS_Store
+.idea/

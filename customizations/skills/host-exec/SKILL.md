@@ -48,8 +48,8 @@ host-exec open -a Simulator
 
 ## 3. How the Bridge Works Under the Hood
 
-1. **Single Source of Truth (`~/.antigravity-sandbox/whitelist.yaml`)**:
-   - The host daemon dynamically reads security policies from `~/.antigravity-sandbox/whitelist.yaml` on the host machine.
+1. **Single Source of Truth (`~/.agent-sandbox/whitelist.yaml`)**:
+   - The host daemon dynamically reads security policies from `~/.agent-sandbox/whitelist.yaml` on the host machine.
    - Any modifications made by the user to the whitelist file take effect immediately without restarting daemons or containers.
 2. **Path Translation**:
    - When you execute `host-exec` from a whitelisted workspace directory, the host bridge automatically matches the container path with the host filesystem path.
@@ -74,9 +74,9 @@ If a command fails with an error indicating the host bridge daemon is unreachabl
 2. **Inform the user clearly**: Explain that the requested tool requires execution on the macOS host, but the host bridge daemon is not running.
 3. **Provide the exact remediation command**: Ask the user to start the daemon in their macOS terminal:
    ```bash
-   antigravity-sandbox host-bridge
+   agent-sandbox host-bridge
    ```
-   *(or `./scripts/antigravity-sandbox host-bridge` from the repository directory)*
+   *(or `./bin/agent-sandbox host-bridge` from the repository directory)*
 4. **Wait for user confirmation**: Once the user confirms the host bridge is active, retry the command.
 
 ---
@@ -88,7 +88,7 @@ If a command fails with a whitelist rejection error, `host-exec` will automatica
 
 **Guidance for Agent**:
 1. Review the output of `host-exec --list` to check if an alternative whitelisted command or argument format is available.
-2. If the tool is not whitelisted, inform the user and direct them to add the command to `allowed_commands` in `~/.antigravity-sandbox/whitelist.yaml` on their macOS host.
+2. If the tool is not whitelisted, inform the user and direct them to add the command to `allowed_commands` in `~/.agent-sandbox/whitelist.yaml` on their macOS host.
 
 ### Scenario C: Interactive User Approval Denied
 If a command fails with:
