@@ -3,97 +3,33 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any, Mapping
 import yaml
+import jsonschema
 
 from .models import EngineManifest, EngineMountConfig, EngineRuleConfig, EngineSkillConfig, SandboxConfig
 
-ENGINE_NAME_REGEX = re.compile(r"^[a-z0-9_-]+$")
-
 
 def validate_manifest_dict(data: Any, schema_path: str | None = None) -> None:
-    """Validates manifest dictionary against schema rules."""
+    """Validates manifest dictionary against the formal JSON schema. Fail fast."""
     if not isinstance(data, dict):
         raise ValueError("Engine manifest must be a YAML mapping/object.")
 
-    # Try formal jsonschema validation if available and schema file exists
     if schema_path is None:
-        # Default candidate location relative to repository root
-        candidate = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "config", "engine-manifest.schema.json")
+        schema_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__), "..", "..", "..", "..", "..", "config", "engine-manifest.schema.json"
+            )
         )
-        if os.path.isfile(candidate):
-            schema_path = candidate
+    if not os.path.isfile(schema_path):
+        raise FileNotFoundError(f"Engine manifest schema not found: {schema_path}")
 
-    if schema_path and os.path.isfile(schema_path):
-        try:
-            import jsonschema  # type: ignore
-            with open(schema_path, "r", encoding="utf-8") as sf:
-                schema_json = json.load(sf)
-            jsonschema.validate(instance=data, schema=schema_json)
-            return
-        except ImportError:
-            pass  # Fallback to internal strict validation
-        except Exception as e:
-            raise ValueError(f"Schema validation failed: {e}") from e
-
-    # Internal strict validation matching Draft 2020-12 schema
-    allowed_top_keys = {"name", "port", "web_url", "rules", "skills", "mounts"}
-    extra_keys = set(data.keys()) - allowed_top_keys
-    if extra_keys:
-        raise ValueError(f"Manifest contains unexpected properties: {sorted(extra_keys)}")
-
-    # Required fields
-    for req in ("name", "port", "web_url"):
-        if req not in data:
-            raise ValueError(f"Manifest missing required property: '{req}'")
-
-    name = data["name"]
-    if not isinstance(name, str) or not ENGINE_NAME_REGEX.match(name):
-        raise ValueError(f"Invalid engine name '{name}': must match '^[a-z0-9_-]+$'")
-
-    port = data["port"]
-    if not isinstance(port, int) or isinstance(port, bool) or port < 1 or port > 65535:
-        raise ValueError(f"Invalid engine port '{port}': must be an integer between 1 and 65535")
-
-    web_url = data["web_url"]
-    if not isinstance(web_url, str) or not web_url.strip():
-        raise ValueError("Engine web_url must be a non-empty string.")
-
-    # Rules validation
-    if "rules" in data:
-        rules = data["rules"]
-        if not isinstance(rules, dict):
-            raise ValueError("Property 'rules' must be an object.")
-        extra_rules_keys = set(rules.keys()) - {"target_file", "host_sources"}
-        if extra_rules_keys:
-            raise ValueError(f"Property 'rules' contains unexpected keys: {sorted(extra_rules_keys)}")
-        if "target_file" not in rules or not isinstance(rules["target_file"], str) or not rules["target_file"].strip():
-            raise ValueError("Property 'rules.target_file' is required and must be a string.")
-        if "host_sources" in rules:
-            if not isinstance(rules["host_sources"], list) or not all(isinstance(s, str) for s in rules["host_sources"]):
-                raise ValueError("Property 'rules.host_sources' must be a list of strings.")
-
-    # Skills validation
-    if "skills" in data:
-        skills = data["skills"]
-        if not isinstance(skills, dict):
-            raise ValueError("Property 'skills' must be an object.")
-        extra_skills_keys = set(skills.keys()) - {"target_dir", "catalogs"}
-        if extra_skills_keys:
-            raise ValueError(f"Property 'skills' contains unexpected keys: {sorted(extra_skills_keys)}")
-        if "target_dir" not in skills or not isinstance(skills["target_dir"], str) or not skills["target_dir"].strip():
-            raise ValueError("Property 'skills.target_dir' is required and must be a string.")
-        if "catalogs" in skills:
-            if not isinstance(skills["catalogs"], list) or not all(isinstance(s, str) for s in skills["catalogs"]):
-                raise ValueError("Property 'skills.catalogs' must be a list of strings.")
-
-    # Mounts validation
-    if "mounts" in data:
-        mounts = data["mounts"]
-        if not isinstance(mounts, list) or not all(isinstance(m, str) for m in mounts):
-            raise ValueError("Property 'mounts' must be a list of strings.")
+    with open(schema_path, "r", encoding="utf-8") as sf:
+        schema_json = json.load(sf)
+    try:
+        jsonschema.validate(instance=data, schema=schema_json)
+    except Exception as e:
+        raise ValueError(f"Schema validation failed: {e}") from e
 
 
 def load_engine_manifest(manifest_path: str, expected_dir_name: str | None = None, schema_path: str | None = None) -> EngineManifest:

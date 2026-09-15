@@ -22,7 +22,7 @@ if [ ! -d "$SANDBOX_DIR" ] && [ -d "$HOME/.antigravity-sandbox" ]; then
   fi
 fi
 
-if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c "import yaml" 2>/dev/null; then
+if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c "import yaml, jsonschema" 2>/dev/null; then
   HOST_PY="$(which python3 2>/dev/null || true)"
   if [ -z "$HOST_PY" ]; then
     echo "[Sandbox Error] Python 3 is required on host." >&2
@@ -33,7 +33,7 @@ if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c "import yaml" 2>/dev/null; then
     "$HOST_PY" -m venv "$VENV_DIR" 2>/dev/null || true
   fi
   if [ -x "$VENV_PY" ]; then
-    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check pyyaml 2>/dev/null || true
+    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check pyyaml jsonschema 2>/dev/null || true
   else
     VENV_PY="$HOST_PY"
   fi

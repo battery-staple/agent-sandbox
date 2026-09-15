@@ -55,7 +55,7 @@ class TestLoader(unittest.TestCase):
     def test_validation_invalid_name(self):
         with self.assertRaises(ValueError) as ctx:
             validate_manifest_dict({"name": "Test Engine!", "port": 1234, "web_url": "http://localhost"})
-        self.assertIn("must match", str(ctx.exception))
+        self.assertIn("does not match", str(ctx.exception))
 
     def test_validation_invalid_port(self):
         with self.assertRaises(ValueError):
@@ -73,7 +73,7 @@ class TestLoader(unittest.TestCase):
                 "web_url": "http://localhost",
                 "unknown_prop": "error"
             })
-        self.assertIn("unexpected properties", str(ctx.exception))
+        self.assertIn("was unexpected", str(ctx.exception))
 
     def test_parent_dir_mismatch(self):
         engine_dir = os.path.join(self.temp_dir, "dir_foo")
