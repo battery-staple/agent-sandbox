@@ -18,7 +18,7 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 echo "[OpenCode] Installing OpenCode V2 (${OPENCODE_PACKAGE}@${OPENCODE_VERSION}) via npm..."
-npm install -g "${OPENCODE_PACKAGE}@${OPENCODE_VERSION}"
+npm install -g --allow-scripts="${OPENCODE_PACKAGE}" "${OPENCODE_PACKAGE}@${OPENCODE_VERSION}"
 
 if ! command -v opencode >/dev/null 2>&1; then
     echo "[OpenCode Error] opencode binary not found after npm install." >&2
