@@ -133,11 +133,8 @@ class SandboxCLI:
         )
 
     def run_compose(self, compose_args: list[str]) -> int:
-        """Executes docker compose against the base project plus the generated override.
+        """Executes docker compose against the base project plus the generated override."""
 
-        The override file defines exactly the requested engine services, so no profiles
-        are required; `docker compose up` operates solely on the engines present in it.
-        """
         cmd = ["docker", "compose", "-f", os.path.join(self.repo_root, "docker-compose.yml")]
         if os.path.isfile(self.override_file):
             cmd.extend(["-f", self.override_file])
@@ -303,7 +300,7 @@ class SandboxCLI:
 
         # 4. Launch containers
         print(f"[Sandbox] Starting containers with VirtioFS (engines: {', '.join(active_names)})...")
-        code = self.run_compose(["up", "-d"])
+        code = self.run_compose(["up", "-d"] + active_names)
         if code == 0:
             print("[Sandbox] Containers started successfully:")
             for e in active:
@@ -312,14 +309,26 @@ class SandboxCLI:
 
     def cmd_stop(self, engines: list[str] | None = None) -> int:
         if engines:
-            self.registry.resolve_active(engines)
-            code = self.run_compose(["stop"])
-        else:
-            code = self.run_compose(["down"])
-            self.stop_host_bridge()
+            active = self.registry.resolve_active(engines)
+            if not active:
+                print("[Sandbox Error] No valid engines resolved to stop.", file=sys.stderr)
+                return 1
+            active_names = [e.name for e in active]
+            remaining = {m.name for m in self.get_running_engines()} - set(active_names)
+            print(f"[Sandbox] Stopping engines: {', '.join(active_names)}...")
+            code = self.run_compose(["stop"] + active_names)
+            if code == 0 and not remaining:
+                self.stop_host_bridge()
+            return code
+        code = self.run_compose(["down"])
+        self.stop_host_bridge()
         return code
 
     def cmd_restart(self, engines: list[str], no_host_bridge: bool = False) -> int:
+        if not engines:
+            available = ", ".join(e.name for e in self.registry.list_all())
+            print(f"[Sandbox Error] No engine specified. Please specify which engine to restart. Available engines: {available}", file=sys.stderr)
+            return 1
         self.cmd_stop(engines)
         return self.cmd_start(engines, no_host_bridge=no_host_bridge)
 
@@ -338,7 +347,7 @@ class SandboxCLI:
             engine_runtimes=active_runtimes,
         )
         print("[Sandbox] Building/Rebuilding container image from Dockerfile.sandbox...")
-        return self.run_compose(["build"])
+        return self.run_compose(["build"] + [e.name for e in active])
 
     def cmd_status(self) -> int:
         config = self.ensure_scaffolding()
@@ -542,8 +551,8 @@ Usage: agent-sandbox <command> [options]
 
 Commands:
   start <engine...> [--no-host-bridge]   Start one or more engines (e.g. opencode antigravity)
-  stop [engine...]                      Stop running sandbox containers and host bridge
-  restart <engine...>                   Restart sandbox containers
+  stop [engine...]                      Stop one or more engines (bridge stops when none remain)
+  restart <engine...>                   Restart one or more engines (others left running)
   build [engine...]                     Rebuild the sandbox container image
   status                                Display sandbox, engine, and bridge status
   ui [engine]                           Open engine Web UI in browser (defaults to active)

@@ -143,8 +143,8 @@ agent-sandbox skills
 | Command | Description |
 | :--- | :--- |
 | `agent-sandbox start <engine...>` | Start one or more engines (e.g. `agent-sandbox start antigravity`). |
-| `agent-sandbox stop [engine...]` | Stop running sandbox containers and host bridge. |
-| `agent-sandbox restart [engine...]` | Restart sandbox containers. |
+| `agent-sandbox stop [engine...]` | Stop one or more engines (bridge stops when none remain). |
+| `agent-sandbox restart <engine...>` | Restart one or more engines (others left running). |
 | `agent-sandbox build [engine...]` | Rebuild the sandbox container image after Dockerfile or installer changes. |
 | `agent-sandbox status` | Display status of available engines, containers, workspaces, and bridge. |
 | `agent-sandbox ui [engine]` | Open engine Web UI in desktop browser. |

@@ -52,5 +52,101 @@ class TestGetRunningEngines(unittest.TestCase):
             self.assertEqual(cli.get_running_engines(), ())
 
 
+class TestSelectiveStopRestart(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="test_cli_selective_")
+
+    def test_stop_single_engine_targets_only_that_service(self):
+        cli = _cli_with_engines(self.tmpdir)
+        both = (cli.registry.get("opencode"), cli.registry.get("antigravity"))
+        with (
+            mock.patch.object(cli, "get_running_engines", return_value=both),
+            mock.patch.object(cli, "run_compose", return_value=0) as rc,
+            mock.patch.object(cli, "stop_host_bridge") as sb,
+        ):
+            cli.cmd_stop(["opencode"])
+        self.assertEqual(rc.call_args[0][0], ["stop", "opencode"])
+        self.assertFalse(sb.called)
+
+    def test_stop_last_engine_stops_bridge(self):
+        cli = _cli_with_engines(self.tmpdir)
+        only_opencode = (cli.registry.get("opencode"),)
+        with (
+            mock.patch.object(cli, "get_running_engines", return_value=only_opencode),
+            mock.patch.object(cli, "run_compose", return_value=0) as rc,
+            mock.patch.object(cli, "stop_host_bridge") as sb,
+        ):
+            cli.cmd_stop(["opencode"])
+        self.assertEqual(rc.call_args[0][0], ["stop", "opencode"])
+        self.assertTrue(sb.called)
+
+    def test_stop_failure_keeps_bridge(self):
+        cli = _cli_with_engines(self.tmpdir)
+        only_opencode = (cli.registry.get("opencode"),)
+        with (
+            mock.patch.object(cli, "get_running_engines", return_value=only_opencode),
+            mock.patch.object(cli, "run_compose", return_value=1) as rc,
+            mock.patch.object(cli, "stop_host_bridge") as sb,
+        ):
+            code = cli.cmd_stop(["opencode"])
+        self.assertEqual(code, 1)
+        self.assertFalse(sb.called)
+
+    def test_stop_all_downs_and_stops_bridge(self):
+        cli = _cli_with_engines(self.tmpdir)
+        with mock.patch.object(cli, "run_compose", return_value=0) as rc, mock.patch.object(
+            cli, "stop_host_bridge"
+        ) as sb:
+            cli.cmd_stop([])
+        self.assertEqual(rc.call_args[0][0], ["down"])
+        self.assertTrue(sb.called)
+
+    def test_restart_without_engines_does_not_down_everything(self):
+        cli = _cli_with_engines(self.tmpdir)
+        with mock.patch.object(cli, "run_compose", return_value=0) as rc:
+            code = cli.cmd_restart([])
+        self.assertEqual(code, 1)
+        self.assertFalse(rc.called)
+
+    def test_restart_single_engine_stops_and_starts_only_it(self):
+        cli = _cli_with_engines(self.tmpdir)
+        both = (cli.registry.get("opencode"), cli.registry.get("antigravity"))
+        with (
+            mock.patch.object(cli, "get_running_engines", return_value=both),
+            mock.patch.object(cli, "ensure_scaffolding"),
+            mock.patch.object(cli, "run_legacy_engine_migrations"),
+            mock.patch("agent_sandbox.cli.load_all_runtimes", return_value=()),
+            mock.patch("agent_sandbox.cli.runtimes_for_active", return_value=()),
+            mock.patch("agent_sandbox.cli.compile_rules_for_engine"),
+            mock.patch("agent_sandbox.cli.generate_compose_override") as gen,
+            mock.patch.object(cli, "start_host_bridge"),
+            mock.patch.object(cli, "stop_host_bridge") as sb,
+            mock.patch.object(cli, "run_compose", return_value=0) as rc,
+        ):
+            cli.cmd_restart(["opencode"])
+        self.assertEqual(rc.call_args_list[0][0][0], ["stop", "opencode"])
+        self.assertEqual(rc.call_args_list[1][0][0], ["up", "-d", "opencode"])
+        names = {e.name for e in gen.call_args[1]["active_engines"]}
+        self.assertEqual(names, {"opencode"})
+        self.assertFalse(sb.called)
+
+    def test_start_targets_only_requested_engine(self):
+        cli = _cli_with_engines(self.tmpdir)
+        with (
+            mock.patch.object(cli, "ensure_scaffolding"),
+            mock.patch.object(cli, "run_legacy_engine_migrations"),
+            mock.patch("agent_sandbox.cli.load_all_runtimes", return_value=()),
+            mock.patch("agent_sandbox.cli.runtimes_for_active", return_value=()),
+            mock.patch("agent_sandbox.cli.compile_rules_for_engine"),
+            mock.patch("agent_sandbox.cli.generate_compose_override") as gen,
+            mock.patch.object(cli, "start_host_bridge"),
+            mock.patch.object(cli, "run_compose", return_value=0) as rc,
+        ):
+            cli.cmd_start(["opencode"])
+        self.assertEqual(rc.call_args[0][0], ["up", "-d", "opencode"])
+        names = {e.name for e in gen.call_args[1]["active_engines"]}
+        self.assertEqual(names, {"opencode"})
+
+
 if __name__ == "__main__":
     unittest.main()
