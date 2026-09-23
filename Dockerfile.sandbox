@@ -215,12 +215,14 @@ ENV WORKSPACE="/workspace"
 # Copy agent environment awareness rule and host-exec skill into image templates
 COPY customizations /etc/sandbox/customizations
 
-# Install container entrypoint, host-exec guest CLI bridge, browser dispatcher, and browser xdg-open bridge
+# Install container entrypoint, host-exec guest CLI bridge, browser dispatcher, browser MCP wrapper, and browser xdg-open bridge
 COPY guest/entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
 COPY guest/bin/host-exec /usr/local/bin/host-exec
 COPY guest/bin/xdg-open /usr/local/bin/xdg-open
 COPY guest/bin/google-chrome /usr/local/bin/google-chrome
-RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/local/bin/xdg-open /usr/local/bin/google-chrome \
+COPY guest/bin/chrome-devtools-mcp /usr/local/bin/chrome-devtools-mcp
+COPY guest/bin/npx /usr/local/bin/npx
+RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/local/bin/xdg-open /usr/local/bin/google-chrome /usr/local/bin/chrome-devtools-mcp /usr/local/bin/npx \
     && ln -sf /usr/local/bin/google-chrome /usr/local/bin/google-chrome-stable \
     && ln -sf /usr/local/bin/google-chrome /usr/local/bin/chromium \
     && ln -sf /usr/local/bin/google-chrome /usr/local/bin/chromium-browser

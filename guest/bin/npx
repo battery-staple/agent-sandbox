@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Antigravity npx wrapper: intercepts chrome-devtools-mcp requests to route to container wrapper
+
+is_mcp=false
+for arg in "$@"; do
+    if [[ "$arg" == *"chrome-devtools-mcp"* ]]; then
+        is_mcp=true
+        break
+    fi
+done
+
+if [ "$is_mcp" = true ]; then
+    filtered=()
+    for arg in "$@"; do
+        if [[ "$arg" == "-y" || "$arg" == "--yes" || "$arg" == "-q" || "$arg" == "--quiet" ]]; then
+            continue
+        elif [[ "$arg" =~ ^chrome-devtools-mcp(@.*)?$ ]]; then
+            continue
+        elif [[ "$arg" == "--" ]]; then
+            continue
+        else
+            filtered+=("$arg")
+        fi
+    done
+    exec /usr/local/bin/chrome-devtools-mcp "${filtered[@]}"
+fi
+
+exec /usr/bin/npx "$@"
