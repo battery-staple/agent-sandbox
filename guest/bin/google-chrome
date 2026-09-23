@@ -1,0 +1,533 @@
+#!/usr/bin/env python3
+"""
+Antigravity Google Chrome Provider & Dispatcher
+================================================
+Dispatches browser requests inside the container to either:
+1. Host macOS Chrome via host-exec bridge (with local loopback CDP forwarder), or
+2. In-container Playwright Chromium (with --no-sandbox).
+
+Configuration:
+- BROWSER_MODE: 'auto' (default), 'host', or 'container'.
+- HOST_EXEC_HOST: Hostname for host bridge (default: 'host.docker.internal').
+- HOST_EXEC_PORT: Port for host-exec daemon (default: 58433).
+- PLAYWRIGHT_BROWSERS_PATH: Directory containing Playwright browsers (default: '/opt/playwright-browsers').
+"""
+
+from __future__ import annotations
+
+import enum
+import logging
+import os
+import select
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Callable, Optional, Protocol, runtime_checkable
+
+logger = logging.getLogger("google-chrome")
+
+
+class BrowserMode(str, enum.Enum):
+    AUTO = "auto"
+    HOST = "host"
+    CONTAINER = "container"
+
+
+@runtime_checkable
+class BrowserProvider(Protocol):
+    def is_available(self) -> bool:
+        ...
+
+    def launch(self, args: list[str]) -> int:
+        ...
+
+
+class Forwarder(Protocol):
+    def start(self) -> None:
+        ...
+
+    def stop(self) -> None:
+        ...
+
+
+class SocatForwarder:
+    """Loopback TCP forwarder powered by socat."""
+
+    def __init__(self, local_port: int, remote_host: str, remote_port: int) -> None:
+        self.local_port = local_port
+        self.remote_host = remote_host
+        self.remote_port = remote_port
+        self._proc: Optional[subprocess.Popen] = None
+
+    def start(self) -> None:
+        cmd = [
+            "socat",
+            f"TCP-LISTEN:{self.local_port},fork,bind=127.0.0.1,reuseaddr",
+            f"TCP:{self.remote_host}:{self.remote_port}",
+        ]
+        self._proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def stop(self) -> None:
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait()
+
+
+class PythonForwarder:
+    """Fallback pure-Python loopback TCP forwarder."""
+
+    def __init__(self, local_port: int, remote_host: str, remote_port: int) -> None:
+        self.local_port = local_port
+        self.remote_host = remote_host
+        self.remote_port = remote_port
+        self._server_sock: Optional[socket.socket] = None
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._active_sockets: set[socket.socket] = set()
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_sock.bind(("127.0.0.1", self.local_port))
+        self._server_sock.listen(128)
+        self._server_sock.settimeout(0.5)
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                if not self._server_sock:
+                    break
+                client_sock, _ = self._server_sock.accept()
+            except (socket.timeout, TimeoutError):
+                continue
+            except OSError:
+                break
+            t = threading.Thread(target=self._handle_client, args=(client_sock,), daemon=True)
+            t.start()
+
+    def _handle_client(self, client_sock: socket.socket) -> None:
+        remote_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            remote_sock.connect((self.remote_host, self.remote_port))
+        except Exception:
+            try:
+                client_sock.close()
+            except Exception:
+                pass
+            try:
+                remote_sock.close()
+            except Exception:
+                pass
+            return
+
+        with self._lock:
+            self._active_sockets.add(client_sock)
+            self._active_sockets.add(remote_sock)
+
+        client_sock.setblocking(False)
+        remote_sock.setblocking(False)
+
+        try:
+            while not self._stop_event.is_set():
+                r, _, _ = select.select([client_sock, remote_sock], [], [], 0.5)
+                if not r:
+                    continue
+                for s in r:
+                    other = remote_sock if s is client_sock else client_sock
+                    data = s.recv(4096)
+                    if not data:
+                        return
+                    other.sendall(data)
+        except Exception:
+            pass
+        finally:
+            with self._lock:
+                self._active_sockets.discard(client_sock)
+                self._active_sockets.discard(remote_sock)
+            try:
+                client_sock.close()
+            except Exception:
+                pass
+            try:
+                remote_sock.close()
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._server_sock:
+            try:
+                self._server_sock.close()
+            except Exception:
+                pass
+        with self._lock:
+            for s in list(self._active_sockets):
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            self._active_sockets.clear()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+
+
+def create_forwarder(local_port: int, remote_host: str, remote_port: int) -> Forwarder:
+    if shutil.which("socat"):
+        return SocatForwarder(local_port, remote_host, remote_port)
+    return PythonForwarder(local_port, remote_host, remote_port)
+
+
+def extract_browser_flags(args: list[str]) -> tuple[int, Optional[str]]:
+    """Extracts remote debugging port (default 9222) and user data dir from arguments."""
+    port = None
+    user_data_dir = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--remote-debugging-port="):
+            val = arg.split("=", 1)[1]
+            try:
+                parsed_port = int(val)
+                if parsed_port > 0:
+                    port = parsed_port
+            except ValueError:
+                pass
+        elif arg == "--remote-debugging-port" and i + 1 < len(args):
+            i += 1
+            try:
+                parsed_port = int(args[i])
+                if parsed_port > 0:
+                    port = parsed_port
+            except ValueError:
+                pass
+        elif arg.startswith("--user-data-dir="):
+            user_data_dir = arg.split("=", 1)[1]
+        elif arg == "--user-data-dir" and i + 1 < len(args):
+            i += 1
+            user_data_dir = args[i]
+        i += 1
+    if port is None:
+        port = 9222
+    return port, user_data_dir
+
+
+def write_devtools_active_port(user_data_dir: str, port: int) -> Path:
+    """Writes <port>\\n/devtools/browser/local to <user_data_dir>/DevToolsActivePort."""
+    dir_path = Path(os.path.expanduser(user_data_dir))
+    dir_path.mkdir(parents=True, exist_ok=True)
+    port_file = dir_path / "DevToolsActivePort"
+    port_file.write_text(f"{port}\n/devtools/browser/local\n", encoding="utf-8")
+    return port_file
+
+
+class HostBrowserProvider:
+    """Launches Google Chrome on host macOS via host-exec bridge with loopback CDP forwarding."""
+
+    def __init__(
+        self,
+        daemon_host: Optional[str] = None,
+        daemon_port: Optional[int] = None,
+        forwarder_host: Optional[str] = None,
+        host_exec_cmd: Optional[str] = None,
+        forwarder_factory: Optional[Callable[[int, str, int], Forwarder]] = None,
+    ) -> None:
+        self._daemon_host = daemon_host
+        self._daemon_port = daemon_port
+        self._forwarder_host = forwarder_host
+        self.host_exec_cmd = host_exec_cmd or "host-exec"
+        self.forwarder_factory = forwarder_factory or create_forwarder
+
+    @property
+    def daemon_host(self) -> Optional[str]:
+        if self._daemon_host is not None:
+            return self._daemon_host
+        return os.environ.get("HOST_EXEC_HOST")
+
+    @property
+    def daemon_port(self) -> Optional[int]:
+        if self._daemon_port is not None:
+            return self._daemon_port
+        val = os.environ.get("HOST_EXEC_PORT")
+        if not val:
+            return None
+        try:
+            return int(val)
+        except ValueError:
+            return None
+
+    @property
+    def forwarder_host(self) -> str:
+        if self._forwarder_host is not None:
+            return self._forwarder_host
+        return self.daemon_host or os.environ.get("HOST_EXEC_HOST", "host.docker.internal")
+
+    def check_daemon_reachable(self, timeout: float = 1.0) -> bool:
+        if not self.daemon_host or self.daemon_port is None:
+            return False
+        try:
+            with socket.create_connection((self.daemon_host, self.daemon_port), timeout=timeout):
+                return True
+        except Exception:
+            return False
+
+    def is_available(self) -> bool:
+        if not shutil.which(self.host_exec_cmd):
+            return False
+        return self.check_daemon_reachable()
+
+    def prepare_args(self, args: list[str]) -> list[str]:
+        """Prepares arguments for host-exec chrome, ensuring --remote-debugging-port is positioned properly."""
+        if any(arg == "--version" or arg.startswith("--version=") for arg in args):
+            return list(args)
+
+        port, _ = extract_browser_flags(args)
+        filtered: list[str] = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg.startswith("--remote-debugging-port="):
+                pass
+            elif arg == "--remote-debugging-port" and i + 1 < len(args):
+                i += 1  # skip next
+            else:
+                filtered.append(arg)
+            i += 1
+        return [f"--remote-debugging-port={port}"] + filtered
+
+    def launch(self, args: list[str]) -> int:
+        if not self.is_available():
+            raise RuntimeError(
+                f"HostBrowserProvider is unavailable: host-exec daemon at "
+                f"{self.daemon_host}:{self.daemon_port} cannot be reached."
+            )
+
+        port, user_data_dir = extract_browser_flags(args)
+        if user_data_dir:
+            write_devtools_active_port(user_data_dir, port)
+
+        final_args = self.prepare_args(args)
+        is_version_check = any(arg == "--version" or arg.startswith("--version=") for arg in args)
+
+        forwarder: Optional[Forwarder] = None
+        if not is_version_check:
+            forwarder = self.forwarder_factory(port, self.forwarder_host, port)
+            forwarder.start()
+
+        cmd = [self.host_exec_cmd, "chrome"] + final_args
+        try:
+            proc = subprocess.Popen(cmd)
+
+            def handle_signal(signum: int, frame: object) -> None:
+                if proc.poll() is None:
+                    try:
+                        proc.send_signal(signum)
+                    except OSError:
+                        pass
+
+            is_main = threading.current_thread() is threading.main_thread()
+            orig_sigint = None
+            orig_sigterm = None
+            if is_main:
+                try:
+                    orig_sigint = signal.signal(signal.SIGINT, handle_signal)
+                    orig_sigterm = signal.signal(signal.SIGTERM, handle_signal)
+                except (ValueError, OSError):
+                    pass
+
+            try:
+                ret = proc.wait()
+                return ret if ret >= 0 else 128 + (-ret)
+            finally:
+                if is_main:
+                    try:
+                        if orig_sigint is not None:
+                            signal.signal(signal.SIGINT, orig_sigint)
+                        if orig_sigterm is not None:
+                            signal.signal(signal.SIGTERM, orig_sigterm)
+                    except (ValueError, OSError):
+                        pass
+        finally:
+            if forwarder is not None:
+                forwarder.stop()
+
+
+class ContainerBrowserProvider:
+    """Launches Playwright Chromium inside the container with --no-sandbox."""
+
+    def __init__(
+        self,
+        browsers_path: Optional[str] = None,
+        use_execv: bool = True,
+    ) -> None:
+        self._browsers_path = browsers_path
+        self.use_execv = use_execv
+
+    @property
+    def browsers_path(self) -> str:
+        if self._browsers_path is not None:
+            return self._browsers_path
+        return os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/playwright-browsers")
+
+    def find_chromium_binary(self) -> Optional[str]:
+        # 1. Check under PLAYWRIGHT_BROWSERS_PATH
+        if os.path.isdir(self.browsers_path):
+            matches: list[str] = []
+            for root, _, files in os.walk(self.browsers_path):
+                for fname in files:
+                    if fname in ("chrome", "chromium"):
+                        cand = os.path.join(root, fname)
+                        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                            matches.append(cand)
+            if matches:
+                matches.sort(reverse=True)
+                return matches[0]
+
+        # 2. Check standard system locations
+        self_path = os.path.realpath(__file__) if "__file__" in globals() else ""
+        system_candidates = [
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chrome",
+            "/usr/local/bin/chromium",
+        ]
+        for cand in system_candidates:
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                if self_path and os.path.realpath(cand) == self_path:
+                    continue
+                return cand
+
+        # 3. Check PATH via shutil.which
+        for bin_name in ["chromium", "chromium-browser"]:
+            found = shutil.which(bin_name)
+            if found and os.path.isfile(found) and os.access(found, os.X_OK):
+                if self_path and os.path.realpath(found) == self_path:
+                    continue
+                return found
+
+        # 4. Fallback to ~/.cache/ms-playwright
+        cache_path = os.path.expanduser("~/.cache/ms-playwright")
+        if os.path.isdir(cache_path):
+            matches = []
+            for root, _, files in os.walk(cache_path):
+                for fname in files:
+                    if fname in ("chrome", "chromium"):
+                        cand = os.path.join(root, fname)
+                        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                            matches.append(cand)
+            if matches:
+                matches.sort(reverse=True)
+                return matches[0]
+
+        return None
+
+    def is_available(self) -> bool:
+        return self.find_chromium_binary() is not None
+
+    def prepare_args(self, args: list[str]) -> list[str]:
+        if "--no-sandbox" not in args:
+            return ["--no-sandbox"] + list(args)
+        return list(args)
+
+    def launch(self, args: list[str]) -> int:
+        binary = self.find_chromium_binary()
+        if not binary:
+            raise RuntimeError(
+                f"Chromium binary not found in container (checked {self.browsers_path} and system paths)"
+            )
+        prepared_args = self.prepare_args(args)
+        if self.use_execv:
+            os.execv(binary, [binary] + prepared_args)
+        else:
+            res = subprocess.run([binary] + prepared_args)
+            return res.returncode
+
+
+class BrowserDispatcher:
+    """Dispatches browser invocation based on BROWSER_MODE (auto, host, container)."""
+
+    def __init__(
+        self,
+        mode: Optional[str] = None,
+        host_provider: Optional[BrowserProvider] = None,
+        container_provider: Optional[BrowserProvider] = None,
+    ) -> None:
+        self._mode = mode
+        self.host_provider = host_provider if host_provider is not None else HostBrowserProvider()
+        self.container_provider = (
+            container_provider if container_provider is not None else ContainerBrowserProvider()
+        )
+
+    @property
+    def mode(self) -> str:
+        if self._mode is not None:
+            return self._mode.strip().lower()
+        return os.environ.get("BROWSER_MODE", "auto").strip().lower()
+
+    def resolve_provider(self) -> BrowserProvider:
+        raw_mode = self.mode
+        try:
+            browser_mode = BrowserMode(raw_mode)
+        except ValueError:
+            raise ValueError(
+                f"Invalid BROWSER_MODE '{raw_mode}'. Must be one of 'auto', 'host', or 'container'."
+            )
+
+        if browser_mode == BrowserMode.HOST:
+            if not self.host_provider.is_available():
+                raise RuntimeError(
+                    "Host browser requested (BROWSER_MODE=host), but host-exec bridge is unavailable."
+                )
+            return self.host_provider
+        elif browser_mode == BrowserMode.CONTAINER:
+            if not self.container_provider.is_available():
+                raise RuntimeError(
+                    "Container browser requested (BROWSER_MODE=container), but Chromium was not found."
+                )
+            return self.container_provider
+        elif browser_mode == BrowserMode.AUTO:
+            if self.host_provider.is_available():
+                return self.host_provider
+            if self.container_provider.is_available():
+                return self.container_provider
+            raise RuntimeError(
+                "No browser provider available in auto mode: host bridge unreachable and in-container Chromium not found."
+            )
+        else:
+            raise ValueError(f"Unhandled browser mode: {browser_mode}")
+
+    def dispatch(self, args: list[str]) -> int:
+        provider = self.resolve_provider()
+        return provider.launch(args)
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    try:
+        dispatcher = BrowserDispatcher()
+        return dispatcher.dispatch(argv)
+    except Exception as exc:
+        print(f"[GOOGLE-CHROME ERROR] {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
