@@ -21,6 +21,7 @@ FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+ENV PLAYWRIGHT_BROWSERS_PATH="/opt/playwright-browsers"
 
 # ------------------------------------------------------------------------------
 # 2. System Packages & Build Foundations
@@ -97,6 +98,11 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get update && apt-get install -y --no-install-recommends nodejs \
     && npm install -g npm@latest yarn pnpm bun \
     && rm -rf /var/lib/apt/lists/*
+
+# Pre-install headless Chromium for Playwright browser automation
+RUN mkdir -p /opt/playwright-browsers \
+    && npx playwright install chromium \
+    && chmod -R 777 /opt/playwright-browsers
 
 # ------------------------------------------------------------------------------
 # 4. Go Toolchain (v1.23)
@@ -180,6 +186,7 @@ RUN if getent group $USER_GID >/dev/null 2>&1; then \
 # - /home/$USERNAME/.gradle: Gradle dependency & build cache
 # - /var/run/host-exec: Host-Exec bridge auth secret directory
 # - /etc/sandbox/customizations: Image templates for agent rules & skills
+# - /opt/playwright-browsers: Pre-installed Playwright Chromium browser binaries
 RUN mkdir -p \
     /workspace \
     /home/$USERNAME/.npm-global \
@@ -187,7 +194,8 @@ RUN mkdir -p \
     /home/$USERNAME/.gradle \
     /var/run/host-exec \
     /etc/sandbox/customizations \
-    && chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME /var/run/host-exec /etc/sandbox
+    /opt/playwright-browsers \
+    && chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME /var/run/host-exec /etc/sandbox /opt/playwright-browsers
 
 # ------------------------------------------------------------------------------
 # 9. Environment Variables for Developer User
@@ -207,11 +215,15 @@ ENV WORKSPACE="/workspace"
 # Copy agent environment awareness rule and host-exec skill into image templates
 COPY customizations /etc/sandbox/customizations
 
-# Install container entrypoint, host-exec guest CLI bridge, and browser xdg-open bridge
+# Install container entrypoint, host-exec guest CLI bridge, browser dispatcher, and browser xdg-open bridge
 COPY guest/entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
 COPY guest/bin/host-exec /usr/local/bin/host-exec
 COPY guest/bin/xdg-open /usr/local/bin/xdg-open
-RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/local/bin/xdg-open
+COPY guest/bin/google-chrome /usr/local/bin/google-chrome
+RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/local/bin/xdg-open /usr/local/bin/google-chrome \
+    && ln -sf /usr/local/bin/google-chrome /usr/local/bin/google-chrome-stable \
+    && ln -sf /usr/local/bin/google-chrome /usr/local/bin/chromium \
+    && ln -sf /usr/local/bin/google-chrome /usr/local/bin/chromium-browser
 
 # ------------------------------------------------------------------------------
 # 11. Runtime Execution Context
