@@ -1,7 +1,8 @@
-"""Antigravity engine adapter. Owns the antigravity user-config shape (empty today)."""
+"""Antigravity engine adapter. Owns the antigravity user-config shape."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import yaml
@@ -10,16 +11,22 @@ from .base import EngineAdapter
 from ..compose.volumes import migrate_antigravity_volume_if_needed
 
 
+class BrowserMode(str, Enum):
+    AUTO = "auto"
+    HOST = "host"
+    CONTAINER = "container"
+
+
 @dataclass(frozen=True)
 class AntigravityUserConfig:
-    pass
+    browser_mode: BrowserMode = BrowserMode.AUTO
 
 
 CONFIG_FILENAME = "config.yaml"
 
 
 def parse_antigravity_user_config(path: Path) -> AntigravityUserConfig:
-    """Parses ~/.agent-sandbox/antigravity/config.yaml. No fields supported yet."""
+    """Parses ~/.agent-sandbox/antigravity/config.yaml into a frozen AntigravityUserConfig."""
     if not path.is_file():
         return AntigravityUserConfig()
     with open(path, "r", encoding="utf-8") as f:
@@ -28,12 +35,19 @@ def parse_antigravity_user_config(path: Path) -> AntigravityUserConfig:
         return AntigravityUserConfig()
     if not isinstance(data, dict):
         raise ValueError(f"Invalid antigravity config {path}: top level must be a mapping.")
-    if data:
-        raise ValueError(
-            f"Invalid antigravity config {path}: unexpected keys: {sorted(data.keys())} "
-            "(no fields supported yet)"
-        )
-    return AntigravityUserConfig()
+    extra = set(data.keys()) - {"browser_mode"}
+    if extra:
+        raise ValueError(f"Invalid antigravity config {path}: unexpected keys: {sorted(extra)}")
+    browser_mode = BrowserMode.AUTO
+    if "browser_mode" in data:
+        raw_mode = data["browser_mode"]
+        try:
+            browser_mode = BrowserMode(raw_mode)
+        except ValueError:
+            raise ValueError(
+                f"Invalid browser_mode '{raw_mode}' in {path}: must be one of 'auto', 'host', 'container'"
+            )
+    return AntigravityUserConfig(browser_mode=browser_mode)
 
 
 class AntigravityAdapter(EngineAdapter):
@@ -58,14 +72,14 @@ class AntigravityAdapter(EngineAdapter):
             raise TypeError(
                 f"AntigravityAdapter.compose_env expects AntigravityUserConfig, got {type(config).__name__}"
             )
-        return ()
+        return (f"BROWSER_MODE={config.browser_mode.value}",)
 
     def status_lines(self, config: object) -> tuple[str, ...]:
         if not isinstance(config, AntigravityUserConfig):
             raise TypeError(
                 f"AntigravityAdapter.status_lines expects AntigravityUserConfig, got {type(config).__name__}"
             )
-        return ()
+        return (f"Browser mode: {config.browser_mode.value}",)
 
     def legacy_container_names(self) -> tuple[str, ...]:
         return ("antigravity-sandbox",)

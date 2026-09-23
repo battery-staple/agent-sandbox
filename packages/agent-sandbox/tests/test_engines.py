@@ -76,9 +76,9 @@ class TestAntigravityAdapter(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_antigravity_user_config(p)
 
-    def test_compose_env_empty(self):
+    def test_compose_env_default(self):
         adapter = get_adapter("antigravity")
-        self.assertEqual(adapter.compose_env(AntigravityUserConfig()), ())
+        self.assertEqual(adapter.compose_env(AntigravityUserConfig()), ("BROWSER_MODE=auto",))
 
 
 class TestRuntimes(unittest.TestCase):
