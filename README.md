@@ -22,6 +22,7 @@ Autonomous AI coding agents routinely need to execute arbitrary shell commands (
 | **Path Parity** | Host paths (`/Users/...`) | Exact 1:1 host path parity (`/Users/...` preserved in container) |
 | **macOS Native Tool Access** | Direct host binary access | Controlled access via HMAC-authenticated, policy-gated Host Bridge |
 | **State Persistence** | Stored directly on host | Retained across restarts via isolated named Docker volumes |
+| **Browser Automation** | Unsandboxed browser processes | Dual-mode: interactive host Chrome or isolated container Chromium |
 
 ---
 
@@ -119,6 +120,7 @@ System compilers and base tools are declared in [`Dockerfile.sandbox`](file:///U
 - **Java & Kotlin**: OpenJDK 21 (LTS), Kotlin CLI compiler v2.1.10, Gradle v8.12.1
 - **Linters & Formatters**: `ktlint`, `google-java-format`
 - **C/C++**: `build-essential` (`gcc`, `g++`, `make`)
+- **Browsers**: Chromium (pre-installed for Playwright and browser subagents)
 
 User modifications and package caches persist in engine-isolated named Docker volumes (`agent_home_<engine>`):
 - `npm install -g <pkg>` installs to `~/.npm-global` without root and persists across container rebuilds.
@@ -135,6 +137,12 @@ Inspect active skills and compiled rules using:
 agent-sandbox rules
 agent-sandbox skills
 ```
+
+### 4. Browser Subagent & Dual-Mode Execution
+Automated browser requests (Playwright, Puppeteer, CDP) are handled transparently by an integrated container browser dispatcher (`google-chrome`, `chromium`):
+- **Host Interactive Mode**: When `agent-sandbox host-bridge` is active, browser requests drive native Google Chrome visibly on the macOS desktop via `host-exec chrome` and transparent loopback CDP forwarding.
+- **Container Headless Mode**: Runs fully isolated offscreen Chromium inside the container with `--no-sandbox`.
+- **Auto Mode (Default)**: Automatically uses host Chrome if the host bridge is running, and gracefully falls back to in-container Chromium if offline. Configurable via `browser_mode` in `~/.agent-sandbox/antigravity/config.yaml` (`auto`, `host`, `container`).
 
 ---
 
