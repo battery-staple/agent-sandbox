@@ -17,7 +17,7 @@ if [ "$#" -eq 0 ]; then
         --standalone \
         --override_ide_name antigravity \
         --subclient_type hub \
-        --override_ide_version 2.8.1 \
+        --override_ide_version 2.16.0 \
         --override_user_agent_name antigravity \
         --https_server_port 58431 \
         --csrf_token "${CSRF_TOKEN:-antigravity-secure-token}" \
