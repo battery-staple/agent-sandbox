@@ -21,3 +21,8 @@ allowed_commands:
     allowed_args_regex: ^.*$
     require_interactive_approval: false
     description: macOS system version information
+  chrome:
+    binary_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+    allowed_args_regex: ^(--remote-debugging-port=\d+.*|--version.*)$
+    require_interactive_approval: false
+    description: Google Chrome with remote debugging on macOS host
