@@ -8,6 +8,7 @@ Supports concurrent connections, interactive approval queuing, and process lifec
 
 import asyncio
 import atexit
+import errno
 import hashlib
 import hmac
 import json
@@ -630,17 +631,17 @@ async def main_async():
     server_instance = get_default_server(secret)
     initial_whitelist = load_whitelist()
 
-    try:
-        with open(PID_FILE_PATH, "w", encoding="utf-8") as f:
-            f.write(str(os.getpid()))
-    except Exception as e:
-        logging.warning("Could not write PID file to %s: %s", PID_FILE_PATH, e)
-
     tcp_server = await asyncio.start_server(
         server_instance.handle_client,
         HOST_EXEC_BIND,
         HOST_EXEC_PORT,
     )
+
+    try:
+        with open(PID_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        logging.warning("Could not write PID file to %s: %s", PID_FILE_PATH, e)
 
     num_cmds = len(initial_whitelist.get("allowed_commands", {}))
     logging.info(
@@ -688,6 +689,15 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         terminate_all_active_processes()
         cleanup()
+    except OSError as e:
+        if e.errno in (errno.EADDRINUSE, 48, 98):
+            logging.error(
+                "Cannot bind Host-Exec Daemon to %s:%s: address already in use.",
+                HOST_EXEC_BIND,
+                HOST_EXEC_PORT,
+            )
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

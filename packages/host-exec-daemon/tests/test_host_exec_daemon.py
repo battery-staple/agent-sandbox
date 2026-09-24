@@ -18,10 +18,13 @@ PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, PACKAGE_DIR)
 
 from host_exec_daemon import (
+    PID_FILE_PATH,
+    cleanup,
     format_log_prefix,
     get_command_description,
     get_required_port,
     get_or_create_secret,
+    main,
     prompt_user_approval_async,
     resolve_cwd,
     verify_token,
@@ -265,6 +268,40 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
     async def test_prompt_exception_handled(self, mock_exec):
         res = await prompt_user_approval_async("git", ["fetch"])
         self.assertFalse(res)
+
+
+class TestPidFileAndStartup(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="test_pid_")
+        self.test_pid_path = os.path.join(self.tmpdir, "host-bridge.pid")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_cleanup_preserves_other_pid(self):
+        with open(self.test_pid_path, "w", encoding="utf-8") as f:
+            f.write("99999999\n")
+        with patch("host_exec_daemon.PID_FILE_PATH", self.test_pid_path):
+            cleanup()
+        self.assertTrue(os.path.exists(self.test_pid_path))
+        with open(self.test_pid_path, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read().strip(), "99999999")
+
+    def test_cleanup_removes_own_pid(self):
+        with open(self.test_pid_path, "w", encoding="utf-8") as f:
+            f.write(f"{os.getpid()}\n")
+        with patch("host_exec_daemon.PID_FILE_PATH", self.test_pid_path):
+            cleanup()
+        self.assertFalse(os.path.exists(self.test_pid_path))
+
+    def test_main_handles_eaddrinuse_cleanly(self):
+        import errno
+        async def mock_main_async():
+            raise OSError(errno.EADDRINUSE, "address already in use")
+        with patch("host_exec_daemon.main_async", side_effect=mock_main_async):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+            self.assertEqual(cm.exception.code, 1)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ PKG_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
-from agent_sandbox.cli import SandboxCLI
+from agent_sandbox.cli import SandboxCLI, main
 from agent_sandbox.config.models import EngineManifest
 
 
@@ -146,6 +146,53 @@ class TestSelectiveStopRestart(unittest.TestCase):
         self.assertEqual(rc.call_args[0][0], ["up", "-d", "opencode"])
         names = {e.name for e in gen.call_args[1]["active_engines"]}
         self.assertEqual(names, {"opencode"})
+
+
+class TestHostBridgeCLI(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="test_cli_hb_")
+        self.env_patcher = mock.patch.dict(os.environ, {"AGENT_SANDBOX_REPO_ROOT": self.tmpdir})
+        self.env_patcher.start()
+
+    def tearDown(self):
+        self.env_patcher.stop()
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_is_host_bridge_port_open_false_on_refused(self):
+        cli = _cli_with_engines(self.tmpdir)
+        with mock.patch("socket.socket") as mock_sock:
+            inst = mock.MagicMock()
+            inst.connect.side_effect = ConnectionRefusedError
+            mock_sock.return_value.__enter__.return_value = inst
+            self.assertFalse(cli.is_host_bridge_port_open())
+
+    def test_is_host_bridge_port_open_true_on_success(self):
+        cli = _cli_with_engines(self.tmpdir)
+        with mock.patch("socket.socket") as mock_sock:
+            inst = mock.MagicMock()
+            inst.connect.return_value = None
+            mock_sock.return_value.__enter__.return_value = inst
+            self.assertTrue(cli.is_host_bridge_port_open())
+
+    def test_main_host_bridge_fg_refuses_when_daemon_running(self):
+        with (
+            mock.patch.object(SandboxCLI, "get_host_bridge_pid", return_value=12345),
+            mock.patch("subprocess.run") as mock_run,
+        ):
+            code = main(["host-bridge", "fg"])
+        self.assertEqual(code, 1)
+        self.assertFalse(mock_run.called)
+
+    def test_main_host_bridge_fg_refuses_when_port_in_use(self):
+        with (
+            mock.patch.object(SandboxCLI, "get_host_bridge_pid", return_value=None),
+            mock.patch.object(SandboxCLI, "is_host_bridge_port_open", return_value=True),
+            mock.patch("subprocess.run") as mock_run,
+        ):
+            code = main(["host-bridge", "fg"])
+        self.assertEqual(code, 1)
+        self.assertFalse(mock_run.called)
 
 
 if __name__ == "__main__":

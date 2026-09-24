@@ -162,11 +162,25 @@ class SandboxCLI:
                 pass
         return None
 
+    def is_host_bridge_port_open(self, host: str = "127.0.0.1", port: int = 58433) -> bool:
+        """Checks if a process is already listening on the host bridge port."""
+        import socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.3)
+                s.connect((host, port))
+                return True
+        except (OSError, ConnectionRefusedError):
+            return False
+
     def start_host_bridge(self) -> None:
         """Starts host-exec daemon in background if not running."""
         pid = self.get_host_bridge_pid()
         if pid:
             print(f"[Bridge] Host-Exec daemon is already running (PID: {pid}).")
+            return
+        if self.is_host_bridge_port_open():
+            print("[Bridge] Host-Exec daemon port 58433 is already in use.")
             return
 
         daemon_script = os.path.join(
@@ -231,6 +245,9 @@ class SandboxCLI:
                     os.remove(self.host_bridge_pid_file)
                 except OSError:
                     pass
+            if self.is_host_bridge_port_open():
+                print("[Bridge Warning] Host-bridge PID file was missing, but port 58433 is still listening.", file=sys.stderr)
+                print("[Bridge Warning] You may need to terminate the process listening on port 58433 manually (e.g. 'lsof -ti :58433 | xargs kill').", file=sys.stderr)
 
     def get_running_engines(self) -> tuple[EngineManifest, ...]:
         """Queries Docker for currently running agent sandbox containers.
@@ -366,7 +383,12 @@ class SandboxCLI:
                 print(f"      {line}")
 
         hb_pid = self.get_host_bridge_pid()
-        hb_state = f"Active (PID: {hb_pid}, port 58433)" if hb_pid else "Inactive"
+        if hb_pid:
+            hb_state = f"Active (PID: {hb_pid}, port 58433)"
+        elif self.is_host_bridge_port_open():
+            hb_state = "Active (port 58433 listening, PID unknown)"
+        else:
+            hb_state = "Inactive"
         print(f"\nHost-Exec Bridge: {hb_state}")
 
         print(f"\nWhitelisted Workspaces ({len(config.allowed_workspaces)}):")
@@ -654,10 +676,20 @@ Commands:
             pid = cli.get_host_bridge_pid()
             if pid:
                 print(f"[Status] Host-Exec daemon: Active (PID: {pid}, Listening on port 58433)")
+            elif cli.is_host_bridge_port_open():
+                print("[Status] Host-Exec daemon: Active (Listening on port 58433, PID unknown)")
             else:
                 print("[Status] Host-Exec daemon: Inactive")
             return 0
         elif sub in ("fg", "run"):
+            pid = cli.get_host_bridge_pid()
+            if pid:
+                print(f"[Bridge Error] Host-Exec daemon is already running in background (PID: {pid}).", file=sys.stderr)
+                print("Use 'agent-sandbox host-bridge stop' to stop it before running in foreground.", file=sys.stderr)
+                return 1
+            if cli.is_host_bridge_port_open():
+                print("[Bridge Error] Host-Exec daemon port 58433 is already in use by another process.", file=sys.stderr)
+                return 1
             daemon_script = os.path.join(cli.repo_root, "packages", "host-exec-daemon", "host_exec_daemon.py")
             env = os.environ.copy()
             env["AGENT_SANDBOX_STATE_DIR"] = cli.sandbox_dir
