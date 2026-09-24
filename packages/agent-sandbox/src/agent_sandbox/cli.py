@@ -13,7 +13,7 @@ from .config.loader import load_sandbox_config, save_sandbox_config
 from .config.models import EngineManifest, SandboxConfig
 from .compose.generator import generate_compose_override
 from .compose.rules import compile_rules_for_engine
-from .engines import all_adapters, get_runtime, load_all_runtimes, resolve_engine_name, runtimes_for_active, scaffold_all
+from .engines import CONTAINER_NAME_PREFIX, all_adapters, get_runtime, load_all_runtimes, resolve_engine_name, runtimes_for_active, scaffold_all
 from .registry.engines import discover_engines
 from .skills.catalog import CatalogSkillResolver
 from .skills.directory import DirectorySkillResolver
@@ -324,6 +324,47 @@ class SandboxCLI:
                 print(f"  - [{e.name.upper()}] Web UI: {e.web_url} (Port {e.port})")
         return code
 
+    def _ensure_services_in_override(self, engines: Sequence[EngineManifest]) -> None:
+        """Ensures the specified engines are defined in docker-compose.override.yml."""
+        common_cfg = os.path.join(self.repo_root, "config", "compose.common.yaml")
+        if not os.path.isfile(common_cfg):
+            return
+
+        needs_generation = False
+        if not os.path.isfile(self.override_file):
+            needs_generation = True
+        else:
+            try:
+                import yaml
+                with open(self.override_file, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                services = data.get("services", {}) if isinstance(data, dict) else {}
+                for e in engines:
+                    if e.name not in services:
+                        needs_generation = True
+                        break
+            except Exception:
+                needs_generation = True
+
+        if needs_generation:
+            try:
+                config = self.ensure_scaffolding()
+                all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
+                active_runtimes = runtimes_for_active(engines, all_runtimes)
+                for e in engines:
+                    compile_rules_for_engine(e, repo_root=self.repo_root, sandbox_dir=self.sandbox_dir)
+                generate_compose_override(
+                    active_engines=engines,
+                    config=config,
+                    repo_root=self.repo_root,
+                    sandbox_dir=self.sandbox_dir,
+                    override_file=self.override_file,
+                    fs_root=self.fs_root,
+                    engine_runtimes=active_runtimes,
+                )
+            except Exception as exc:
+                print(f"[Sandbox Warning] Could not regenerate compose override: {exc}", file=sys.stderr)
+
     def cmd_stop(self, engines: list[str] | None = None) -> int:
         if engines:
             active = self.registry.resolve_active(engines)
@@ -333,11 +374,47 @@ class SandboxCLI:
             active_names = [e.name for e in active]
             remaining = {m.name for m in self.get_running_engines()} - set(active_names)
             print(f"[Sandbox] Stopping engines: {', '.join(active_names)}...")
+            self._ensure_services_in_override(active)
             code = self.run_compose(["stop"] + active_names)
+            if code != 0:
+                # Fallback: stop active engine containers directly via docker stop
+                fallback_success = True
+                for name in active_names:
+                    candidates = [f"{CONTAINER_NAME_PREFIX}{name}"]
+                    adapter = next((a for a in all_adapters() if a.name == name), None)
+                    if adapter:
+                        candidates.extend(adapter.legacy_container_names())
+                    stopped = False
+                    for cname in candidates:
+                        try:
+                            res = subprocess.run(
+                                ["docker", "stop", cname],
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                            )
+                            if res.returncode == 0:
+                                stopped = True
+                                print(f"[Sandbox] Stopped container '{cname}' directly via Docker.")
+                                break
+                        except Exception:
+                            pass
+                    if not stopped:
+                        fallback_success = False
+                if fallback_success:
+                    code = 0
+
             if code == 0 and not remaining:
                 self.stop_host_bridge()
             return code
         code = self.run_compose(["down"])
+        if code != 0:
+            for running_engine in self.get_running_engines():
+                cname = f"{CONTAINER_NAME_PREFIX}{running_engine.name}"
+                try:
+                    subprocess.run(["docker", "stop", cname], capture_output=True, check=False)
+                except Exception:
+                    pass
         self.stop_host_bridge()
         return code
 

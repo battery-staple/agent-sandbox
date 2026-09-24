@@ -144,6 +144,57 @@ class TestGenerator(unittest.TestCase):
         self.assertEqual(parsed["volumes"]["agent_home_opencode"]["name"], "agent_home_opencode")
         self.assertEqual(parsed["volumes"]["agent_home_antigravity"]["name"], "agent_home_antigravity")
 
+    def test_generate_compose_override_preserves_existing_services(self):
+        engine_anti = EngineManifest(
+            name="antigravity",
+            port=58432,
+            web_url="https://localhost:58432",
+            rules=EngineRuleConfig(target_file="~/.gemini/GEMINI.md"),
+            skills=EngineSkillConfig(target_dir="/home/developer/.gemini/antigravity/builtin/skills"),
+            mounts=("~/.gemini",),
+        )
+        engine_opencode = EngineManifest(
+            name="opencode",
+            port=4096,
+            web_url="http://127.0.0.1:4096",
+            rules=EngineRuleConfig(target_file="~/.config/opencode/AGENTS.md"),
+            skills=EngineSkillConfig(target_dir="~/.config/opencode/skills"),
+            mounts=("~/.config/opencode",),
+        )
+        config = SandboxConfig(allowed_workspaces=(self.ws_dir,))
+        override_file = os.path.join(self.temp_dir, "docker-compose.override.yml")
+
+        # First run: start antigravity only
+        generate_compose_override(
+            active_engines=[engine_anti],
+            config=config,
+            repo_root=self.repo_root,
+            sandbox_dir=self.sandbox_dir,
+            override_file=override_file,
+            fs_root=self.fs_root,
+        )
+        with open(override_file, "r", encoding="utf-8") as f:
+            first_parsed = yaml.safe_load(f)
+        self.assertIn("antigravity", first_parsed["services"])
+        self.assertNotIn("opencode", first_parsed["services"])
+        self.assertIn("agent_home_antigravity", first_parsed["volumes"])
+
+        # Second run: start opencode only - must preserve antigravity!
+        generate_compose_override(
+            active_engines=[engine_opencode],
+            config=config,
+            repo_root=self.repo_root,
+            sandbox_dir=self.sandbox_dir,
+            override_file=override_file,
+            fs_root=self.fs_root,
+        )
+        with open(override_file, "r", encoding="utf-8") as f:
+            second_parsed = yaml.safe_load(f)
+        self.assertIn("antigravity", second_parsed["services"])
+        self.assertIn("opencode", second_parsed["services"])
+        self.assertIn("agent_home_antigravity", second_parsed["volumes"])
+        self.assertIn("agent_home_opencode", second_parsed["volumes"])
+
 
 if __name__ == "__main__":
     unittest.main()

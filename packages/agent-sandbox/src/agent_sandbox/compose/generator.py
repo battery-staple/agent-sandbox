@@ -65,7 +65,24 @@ def generate_compose_override(
     dir_skill_resolver = DirectorySkillResolver(sandbox_dir=norm_sandbox)
     catalog_skill_resolver = CatalogSkillResolver(allowed_workspaces=config.allowed_workspaces)
 
+    out_path = os.path.abspath(os.path.expanduser(override_file)) if override_file else None
+
     services: dict[str, dict] = {}
+    volumes_top: dict[str, dict] = {}
+
+    if out_path and os.path.isfile(out_path):
+        try:
+            with open(out_path, "r", encoding="utf-8") as f:
+                prev_data = yaml.safe_load(f) or {}
+            if isinstance(prev_data, dict):
+                prev_services = prev_data.get("services")
+                if isinstance(prev_services, dict):
+                    services.update(prev_services)
+                prev_volumes = prev_data.get("volumes")
+                if isinstance(prev_volumes, dict):
+                    volumes_top.update(prev_volumes)
+        except Exception:
+            pass
 
     for engine in active_engines:
         service_entry = common.as_service_fragment(build_context=norm_repo)
@@ -142,7 +159,6 @@ def generate_compose_override(
         service_entry["volumes"] = volumes
         services[engine.name] = service_entry
 
-    volumes_top: dict[str, dict] = {}
     for engine in active_engines:
         vname = f"agent_home_{engine.name}"
         volumes_top[vname] = {"name": vname}
@@ -153,8 +169,7 @@ def generate_compose_override(
 
     yaml_content = yaml.safe_dump(override_data, sort_keys=False)
 
-    if override_file:
-        out_path = os.path.abspath(os.path.expanduser(override_file))
+    if out_path:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(yaml_content)

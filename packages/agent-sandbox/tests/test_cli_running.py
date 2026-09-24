@@ -92,6 +92,21 @@ class TestSelectiveStopRestart(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(sb.called)
 
+    def test_stop_fallback_to_docker_stop_when_compose_fails(self):
+        cli = _cli_with_engines(self.tmpdir)
+        only_anti = (cli.registry.get("antigravity"),)
+        proc_success = SimpleNamespace(returncode=0)
+        with (
+            mock.patch.object(cli, "get_running_engines", return_value=only_anti),
+            mock.patch.object(cli, "run_compose", return_value=1),
+            mock.patch("subprocess.run", return_value=proc_success) as mock_subproc,
+            mock.patch.object(cli, "stop_host_bridge") as sb,
+        ):
+            code = cli.cmd_stop(["antigravity"])
+        self.assertEqual(code, 0)
+        self.assertTrue(sb.called)
+        self.assertEqual(mock_subproc.call_args[0][0], ["docker", "stop", "agent-sandbox-antigravity"])
+
     def test_stop_all_downs_and_stops_bridge(self):
         cli = _cli_with_engines(self.tmpdir)
         with mock.patch.object(cli, "run_compose", return_value=0) as rc, mock.patch.object(
