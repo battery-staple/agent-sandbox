@@ -9,6 +9,7 @@ This document outlines an optional, enterprise-grade future enhancement for the 
 In the base sandbox architecture, the agent can access the public internet to download package dependencies (`npm`, `pip`, `go`, `cargo`) and query the Gemini API (`generativelanguage.googleapis.com`).
 
 For organizations or developers requiring strict data exfiltration prevention, an **Egress Filtering Sidecar** can be added to enforce granular domain and IP whitelisting:
+
 - **Block Unapproved External Domains**: Prevent the agent or downloaded scripts from contacting unvetted third-party servers.
 - **Isolate Local Private Networks**: Block access to internal private LAN subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, home router admin panels).
 - **Log & Audit Traffic**: Capture a cryptographic audit log of all HTTP/HTTPS CONNECT requests initiated by the agent.
@@ -49,6 +50,7 @@ flowchart LR
 ## 3. Implementation Blueprint
 
 ### 3.1 Docker Compose Configuration
+
 To add the sidecar, add an `egress-proxy` service in `docker-compose.override.yml` or `docker-compose.yml`:
 
 ```yaml
@@ -73,6 +75,7 @@ services:
 ```
 
 ### 3.2 Squid Whitelist Policy (`security/egress-whitelist.squid.conf`)
+
 ```squid
 # Define standard ports
 acl SSL_ports port 443
