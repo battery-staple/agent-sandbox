@@ -2,7 +2,7 @@
 name = "antigravity-container"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pyyaml", "jsonschema"]
+dependencies = ["pyyaml>=6.0.2", "jsonschema>=4.0"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
