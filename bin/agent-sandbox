@@ -14,6 +14,16 @@ SANDBOX_DIR="${AGENT_SANDBOX_DIR:-$HOME/.agent-sandbox}"
 VENV_DIR="$SANDBOX_DIR/.venv"
 VENV_PY="$VENV_DIR/bin/python3"
 
+# Fast-path for tab completion queries (sub-25ms)
+if [ "$1" = "_complete" ]; then
+  export PYTHONPATH="$REPO_ROOT/packages/agent-sandbox/src:$REPO_ROOT/packages/host-exec-daemon:$PYTHONPATH"
+  PY_BIN="$VENV_PY"
+  if [ ! -x "$PY_BIN" ]; then
+    PY_BIN="$(which python3 2>/dev/null || true)"
+  fi
+  exec "$PY_BIN" -m agent_sandbox.cli "$@"
+fi
+
 # Fallback: check legacy sandbox dir
 if [ ! -d "$SANDBOX_DIR" ] && [ -d "$HOME/.antigravity-sandbox" ]; then
   LEGACY_PY="$HOME/.antigravity-sandbox/.venv/bin/python3"
