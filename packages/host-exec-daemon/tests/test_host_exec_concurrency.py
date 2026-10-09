@@ -163,7 +163,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         """Verify non-interactive commands run and finish while an interactive approval is pending."""
         approval_gate = asyncio.Event()
 
-        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id=""):
+        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id="", cwd=""):
             await approval_gate.wait()
             return True
 
@@ -201,12 +201,14 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         active_prompts = 0
         max_simultaneous_prompts = 0
         call_order = []
+        received_cwds = []
 
-        async def mock_dialog(cmd_name, args, req_id="", traj_id=""):
+        async def mock_dialog(cmd_name, args, req_id="", traj_id="", cwd=""):
             nonlocal active_prompts, max_simultaneous_prompts
             active_prompts += 1
             max_simultaneous_prompts = max(max_simultaneous_prompts, active_prompts)
             call_order.append(req_id)
+            received_cwds.append(cwd)
             await asyncio.sleep(0.1)
             active_prompts -= 1
             return True
@@ -232,12 +234,14 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
             # Must have evaluated strictly sequentially (max 1 prompt active at any instant)
             self.assertEqual(max_simultaneous_prompts, 1)
             self.assertEqual(call_order, ["req-first", "req-second"])
+            # The dialog must receive the resolved working directory for each request
+            self.assertEqual(received_cwds, [self.temp_dir, self.temp_dir])
         finally:
             host_exec_daemon.prompt_user_approval_async = orig_prompt
 
     async def test_interactive_approval_denial(self):
         """Verify user denial cleanly aborts execution with denied_by_user and no process runs."""
-        async def mock_denial(cmd_name, args, req_id="", traj_id=""):
+        async def mock_denial(cmd_name, args, req_id="", traj_id="", cwd=""):
             return False
 
         orig_prompt = host_exec_daemon.prompt_user_approval_async

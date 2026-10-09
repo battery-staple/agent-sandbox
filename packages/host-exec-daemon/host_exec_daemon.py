@@ -273,11 +273,13 @@ end run
 
 
 async def prompt_user_approval_async(
-    command_name: str, args: List[str], req_id: str = "", traj_id: str = ""
+    command_name: str, args: List[str], req_id: str = "", traj_id: str = "", cwd: str = ""
 ) -> bool:
-    """Prompt user for confirmation via native macOS dialog with monospace codeblock."""
+    """Prompt user for confirmation via native macOS dialog, showing the effective working directory."""
     cmd_display = shlex.join([command_name] + args) if isinstance(args, list) else f"{command_name} {args}"
     context_lines = []
+    if cwd:
+        context_lines.append(f"Working Directory: {cwd}")
     if traj_id:
         context_lines.append(f"Trajectory: {traj_id}")
     if req_id:
@@ -523,12 +525,17 @@ class HostExecServer:
                 })
                 return
 
-            # 5. Interactive User Approval (Serialized via approval_lock)
+            # 5. Resolve Effective Working Directory on Host (home fallback if path is absent)
+            effective_cwd = resolve_cwd(raw_cwd)
+
+            # 6. Interactive User Approval (Serialized via approval_lock)
             if policy.get("require_interactive_approval", False):
                 logging.info("%s Command requires interactive approval. Waiting for approval lock...", prefix)
                 async with self.approval_lock:
                     logging.info("%s Displaying approval dialog on macOS...", prefix)
-                    approved = await prompt_user_approval_async(command_name, args, req_id, traj_id)
+                    approved = await prompt_user_approval_async(
+                        command_name, args, req_id, traj_id, cwd=effective_cwd
+                    )
 
                 if not approved:
                     logging.warning("%s Execution denied by user.", prefix)
@@ -540,8 +547,7 @@ class HostExecServer:
                     return
                 logging.info("%s Execution approved by user.", prefix)
 
-            # 6. Subprocess Execution Guarded by Concurrency Semaphore & Disconnect Watcher
-            effective_cwd = resolve_cwd(raw_cwd)
+            # 7. Subprocess Execution Guarded by Concurrency Semaphore & Disconnect Watcher
             cmd = [bin_path] + args
             start_time = time.monotonic()
             logging.info("%s Executing '%s' with cwd='%s'", prefix, bin_path, effective_cwd)

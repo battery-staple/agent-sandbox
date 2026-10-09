@@ -174,7 +174,11 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         mock_exec.return_value = proc_mock
 
         res = await prompt_user_approval_async(
-            "git", ["push", "origin", "main"], req_id="req-123", traj_id="traj-456"
+            "git",
+            ["push", "origin", "main"],
+            req_id="req-123",
+            traj_id="traj-456",
+            cwd="/Users/example/project",
         )
         self.assertTrue(res)
 
@@ -195,8 +199,22 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
 
         # Verify arguments passed cleanly via argv
         self.assertEqual(cmd_arg, "git push origin main")
+        self.assertIn("Working Directory: /Users/example/project", prompt_arg)
         self.assertIn("Trajectory: traj-456", prompt_arg)
         self.assertIn("Request: req-123", prompt_arg)
+
+    @patch("asyncio.create_subprocess_exec")
+    async def test_prompt_omits_working_directory_when_unknown(self, mock_exec):
+        proc_mock = AsyncMock()
+        proc_mock.communicate.return_value = (b"Approve\n", b"")
+        proc_mock.returncode = 0
+        mock_exec.return_value = proc_mock
+
+        res = await prompt_user_approval_async("git", ["fetch"])
+        self.assertTrue(res)
+
+        prompt_arg = mock_exec.call_args[0][4]
+        self.assertNotIn("Working Directory:", prompt_arg)
 
     @patch("asyncio.create_subprocess_exec")
     async def test_prompt_cocoa_denial(self, mock_exec):
@@ -225,7 +243,9 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
 
         mock_exec.side_effect = [proc_cocoa, proc_fallback]
 
-        res = await prompt_user_approval_async("git", ["push", "origin", "main"])
+        res = await prompt_user_approval_async(
+            "git", ["push", "origin", "main"], cwd="/Users/example/project"
+        )
         self.assertTrue(res)
         self.assertEqual(mock_exec.call_count, 2)
 
@@ -233,6 +253,7 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         fallback_script = fallback_args[2]
         self.assertIn("display dialog", fallback_script)
         self.assertIn('default answer "git push origin main"', fallback_script)
+        self.assertIn("Working Directory: /Users/example/project", fallback_script)
 
     @patch("asyncio.create_subprocess_exec")
     async def test_prompt_fallback_denial_with_approve_in_command(self, mock_exec):
