@@ -10,3 +10,5 @@ skills:
   target_dir: ~/.config/opencode/skills
 mounts:
   - ~/.config/opencode
+  - ~/.local/state/opencode
+  - ~/.local/share/opencode
