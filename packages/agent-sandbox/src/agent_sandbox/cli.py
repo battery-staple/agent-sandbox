@@ -14,6 +14,7 @@ from .config.models import EngineManifest, SandboxConfig
 from .compose.generator import generate_compose_override
 from .compose.rules import compile_rules_for_engine
 from .engines import CONTAINER_NAME_PREFIX, all_adapters, get_runtime, load_all_runtimes, resolve_engine_name, runtimes_for_active, scaffold_all
+from .framework import CLIApp, argument, generate_completion_script, option
 from .registry.engines import discover_engines
 from .skills.catalog import CatalogSkillResolver
 from .skills.directory import DirectorySkillResolver
@@ -23,6 +24,9 @@ def get_repo_root() -> str:
     """Returns the repository root path from AGENT_SANDBOX_REPO_ROOT or fails fast."""
     repo_root = os.environ.get("AGENT_SANDBOX_REPO_ROOT")
     if not repo_root:
+        candidate = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+        if os.path.isdir(os.path.join(candidate, "engines")):
+            return candidate
         raise RuntimeError(
             "AGENT_SANDBOX_REPO_ROOT environment variable is not set. "
             "Please invoke agent-sandbox via bin/agent-sandbox or export AGENT_SANDBOX_REPO_ROOT."
@@ -33,6 +37,51 @@ def get_repo_root() -> str:
             f"AGENT_SANDBOX_REPO_ROOT directory does not exist: {repo_root}"
         )
     return repo_root
+
+
+def resolve_engines(cli: SandboxCLI) -> list[str]:
+    try:
+        return [e.name for e in cli.registry.list_all()]
+    except Exception:
+        return []
+
+
+def resolve_whitelisted_workspaces(cli: SandboxCLI) -> list[str]:
+    try:
+        config = cli.ensure_scaffolding()
+        return list(config.allowed_workspaces)
+    except Exception:
+        return []
+
+
+def resolve_sandbox_entries(cli: SandboxCLI) -> list[str]:
+    try:
+        if os.path.isdir(cli.sandbox_dir):
+            return [f for f in os.listdir(cli.sandbox_dir) if not f.startswith(".")]
+    except Exception:
+        pass
+    return []
+
+
+app = CLIApp(name="agent-sandbox")
+ws_group = app.group(
+    name="workspace",
+    aliases=["ws"],
+    help="Whitelist workspace directory",
+    default_command="list",
+)
+hb_group = app.group(
+    name="host-bridge",
+    help="Manage the macOS host execution bridge",
+    default_command="status",
+    custom_usage="host-bridge [start|stop|restart|status|fg]",
+)
+completion_group = app.group(
+    name="completion",
+    help="Generate or install shell tab-completion scripts (zsh, bash)",
+    default_command="zsh",
+    custom_usage="completion [zsh|bash|install]",
+)
 
 
 class SandboxCLI:
@@ -275,6 +324,14 @@ class SandboxCLI:
         return tuple(self.registry.resolve_active(names))
 
     # Command Handlers
+    @app.command(
+        "start",
+        help="Start one or more engines (e.g. opencode antigravity)",
+        custom_usage="start <engine...> [--no-host-bridge]",
+    )
+    @argument("engines", nargs="*", required=False, help="Engines to start", complete=resolve_engines)
+    @option("--no-host-bridge", is_flag=True, dest="no_host_bridge", value=True, help="Do not start host bridge")
+    @option("--with-host-bridge", is_flag=True, dest="no_host_bridge", value=False, help="Start host bridge")
     def cmd_start(self, engines: list[str], no_host_bridge: bool = False) -> int:
         if not engines:
             available = ", ".join(e.name for e in self.registry.list_all())
@@ -365,6 +422,12 @@ class SandboxCLI:
             except Exception as exc:
                 print(f"[Sandbox Warning] Could not regenerate compose override: {exc}", file=sys.stderr)
 
+    @app.command(
+        "stop",
+        help="Stop one or more engines (bridge stops when none remain)",
+        custom_usage="stop [engine...]",
+    )
+    @argument("engines", nargs="*", required=False, help="Engines to stop", complete=resolve_engines)
     def cmd_stop(self, engines: list[str] | None = None) -> int:
         if engines:
             active = self.registry.resolve_active(engines)
@@ -418,6 +481,14 @@ class SandboxCLI:
         self.stop_host_bridge()
         return code
 
+    @app.command(
+        "restart",
+        help="Restart one or more engines (others left running)",
+        custom_usage="restart <engine...>",
+    )
+    @argument("engines", nargs="*", required=False, help="Engines to restart", complete=resolve_engines)
+    @option("--no-host-bridge", is_flag=True, dest="no_host_bridge", value=True, help="Do not start host bridge")
+    @option("--with-host-bridge", is_flag=True, dest="no_host_bridge", value=False, help="Start host bridge")
     def cmd_restart(self, engines: list[str], no_host_bridge: bool = False) -> int:
         if not engines:
             available = ", ".join(e.name for e in self.registry.list_all())
@@ -426,6 +497,12 @@ class SandboxCLI:
         self.cmd_stop(engines)
         return self.cmd_start(engines, no_host_bridge=no_host_bridge)
 
+    @app.command(
+        "build",
+        help="Rebuild the sandbox container image",
+        custom_usage="build [engine...]",
+    )
+    @argument("engines", nargs="*", required=False, help="Engines to build", complete=resolve_engines)
     def cmd_build(self, engines: list[str] | None = None) -> int:
         config = self.ensure_scaffolding()
         active = self.registry.resolve_active(engines) if engines else self.registry.list_all()
@@ -443,6 +520,7 @@ class SandboxCLI:
         print("[Sandbox] Building/Rebuilding container image from Dockerfile.sandbox...")
         return self.run_compose(["build"] + [e.name for e in active])
 
+    @app.command("status", help="Display sandbox, engine, and bridge status")
     def cmd_status(self) -> int:
         config = self.ensure_scaffolding()
         all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
@@ -477,6 +555,13 @@ class SandboxCLI:
         print("==========================================================")
         return 0
 
+    @app.command(
+        "ui",
+        aliases=["web"],
+        help="Open engine Web UI in browser (defaults to active)",
+        custom_usage="ui [engine]",
+    )
+    @argument("engine_name", nargs="?", required=False, default=None, help="Engine name", complete=resolve_engines)
     def cmd_ui(self, engine_name: str | None = None) -> int:
         self.ensure_scaffolding()
         all_runtimes = load_all_runtimes(self.registry.list_all(), self.sandbox_dir)
@@ -518,6 +603,13 @@ class SandboxCLI:
                 print(f"[Sandbox] Please open {url} in your browser.")
         return 0
 
+    @ws_group.command(
+        "add",
+        help="Whitelist workspace directory",
+        custom_usage="workspace add [path] [-y|--force]",
+    )
+    @argument("path", nargs="?", required=False, default=None, help="Workspace directory path", complete="directories")
+    @option("-y", "--force", is_flag=True, dest="force", value=True, help="Create directory if missing")
     def cmd_workspace_add(self, path: str | None = None, force: bool = False) -> int:
         config = self.ensure_scaffolding()
         target = os.path.abspath(os.path.expanduser(path or os.getcwd()))
@@ -548,6 +640,13 @@ class SandboxCLI:
             self.cmd_start([e.name for e in running])
         return 0
 
+    @ws_group.command(
+        "remove",
+        aliases=["rm"],
+        help="Remove workspace from whitelist",
+        custom_usage="workspace remove <path>",
+    )
+    @argument("path", required=True, help="Workspace directory to remove", complete=resolve_whitelisted_workspaces)
     def cmd_workspace_remove(self, path: str) -> int:
         config = self.ensure_scaffolding()
         target = os.path.abspath(os.path.expanduser(path))
@@ -570,6 +669,12 @@ class SandboxCLI:
             self.cmd_start([e.name for e in running])
         return 0
 
+    @ws_group.command(
+        "list",
+        aliases=["ls"],
+        help="List whitelisted workspaces",
+        custom_usage="workspace list",
+    )
     def cmd_workspace_list(self) -> int:
         config = self.ensure_scaffolding()
         print(f"Whitelisted Workspaces ({len(config.allowed_workspaces)}):")
@@ -577,6 +682,12 @@ class SandboxCLI:
             print(f"  - {ws}")
         return 0
 
+    @app.command(
+        "rules",
+        help="Display compiled rules and sources",
+        custom_usage="rules [engine]",
+    )
+    @argument("engine_name", nargs="?", required=False, default=None, help="Engine name", complete=resolve_engines)
     def cmd_rules(self, engine_name: str | None = None) -> int:
         config = self.ensure_scaffolding()
         engines = [self.registry.get(engine_name)] if engine_name else self.registry.list_all()
@@ -597,6 +708,12 @@ class SandboxCLI:
         print("==========================================================")
         return 0
 
+    @app.command(
+        "skills",
+        help="Display discovered skills",
+        custom_usage="skills [engine]",
+    )
+    @argument("engine_name", nargs="?", required=False, default=None, help="Engine name", complete=resolve_engines)
     def cmd_skills(self, engine_name: str | None = None) -> int:
         config = self.ensure_scaffolding()
         engines = [self.registry.get(engine_name)] if engine_name else self.registry.list_all()
@@ -620,6 +737,12 @@ class SandboxCLI:
         print("==========================================================")
         return 0
 
+    @app.command(
+        "open",
+        help="Open sandbox state folder in desktop file manager",
+        custom_usage="open [subpath]",
+    )
+    @argument("target", nargs="?", required=False, default=None, help="Subpath to open", complete=resolve_sandbox_entries)
     def cmd_open(self, target: str | None = None) -> int:
         dest = self.sandbox_dir
         if target:
@@ -637,148 +760,118 @@ class SandboxCLI:
                 subprocess.run(["xdg-open", dest], check=False)
         return 0
 
+    @hb_group.command("start", aliases=["--bg", "-d"], help="Start Host-Exec daemon in background")
+    def cmd_host_bridge_start(self) -> int:
+        self.start_host_bridge()
+        return 0
+
+    @hb_group.command("stop", help="Stop Host-Exec daemon")
+    def cmd_host_bridge_stop(self) -> int:
+        self.stop_host_bridge()
+        return 0
+
+    @hb_group.command("restart", help="Restart Host-Exec daemon")
+    def cmd_host_bridge_restart(self) -> int:
+        self.stop_host_bridge()
+        self.start_host_bridge()
+        return 0
+
+    @hb_group.command("status", help="Check Host-Exec daemon status")
+    def cmd_host_bridge_status(self) -> int:
+        pid = self.get_host_bridge_pid()
+        if pid:
+            print(f"[Status] Host-Exec daemon: Active (PID: {pid}, Listening on port 58433)")
+        elif self.is_host_bridge_port_open():
+            print("[Status] Host-Exec daemon: Active (Listening on port 58433, PID unknown)")
+        else:
+            print("[Status] Host-Exec daemon: Inactive")
+        return 0
+
+    @hb_group.command("fg", aliases=["run"], help="Run Host-Exec daemon in foreground")
+    def cmd_host_bridge_fg(self) -> int:
+        pid = self.get_host_bridge_pid()
+        if pid:
+            print(f"[Bridge Error] Host-Exec daemon is already running in background (PID: {pid}).", file=sys.stderr)
+            print("Use 'agent-sandbox host-bridge stop' to stop it before running in foreground.", file=sys.stderr)
+            return 1
+        if self.is_host_bridge_port_open():
+            print("[Bridge Error] Host-Exec daemon port 58433 is already in use by another process.", file=sys.stderr)
+            return 1
+        daemon_script = os.path.join(self.repo_root, "packages", "host-exec-daemon", "host_exec_daemon.py")
+        env = os.environ.copy()
+        env["AGENT_SANDBOX_STATE_DIR"] = self.sandbox_dir
+        env["HOST_EXEC_PORT"] = "58433"
+        return subprocess.run([sys.executable, daemon_script], env=env).returncode
+
+    @completion_group.command("zsh", help="Output Zsh tab-completion script")
+    def cmd_completion_zsh(self) -> int:
+        print(generate_completion_script("zsh", "agent-sandbox"))
+        return 0
+
+    @completion_group.command("bash", help="Output Bash tab-completion script")
+    def cmd_completion_bash(self) -> int:
+        print(generate_completion_script("bash", "agent-sandbox"))
+        return 0
+
+    @completion_group.command("install", help="Install tab-completion loader into shell profile (~/.zshrc or ~/.bashrc)")
+    @option("--shell", dest="shell", is_flag=False, default=None, help="Target shell (zsh or bash)")
+    def cmd_completion_install(self, shell: str | None = None) -> int:
+        target_shell = shell
+        if not target_shell:
+            user_shell = os.environ.get("SHELL", "").lower()
+            if "bash" in user_shell:
+                target_shell = "bash"
+            else:
+                target_shell = "zsh"
+
+        if target_shell not in ("zsh", "bash"):
+            print(f"[Completion Error] Unsupported shell: {target_shell}. Supported: zsh, bash", file=sys.stderr)
+            return 1
+
+        rc_file = os.path.expanduser("~/.bashrc" if target_shell == "bash" else "~/.zshrc")
+        eval_line = f'eval "$(agent-sandbox completion {target_shell})"'
+
+        if os.path.isfile(rc_file):
+            try:
+                with open(rc_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if eval_line in content:
+                    print(f"[Completion] Tab-completion is already configured in {rc_file}.")
+                    return 0
+            except Exception:
+                pass
+
+        try:
+            with open(rc_file, "a", encoding="utf-8") as f:
+                f.write(f"\n# Enable agent-sandbox tab-completion\n{eval_line}\n")
+            print(f"[Completion] Successfully added tab-completion loader to {rc_file}.")
+            print(f"[Completion] Run 'source {rc_file}' or start a new terminal session to enable it.")
+            return 0
+        except Exception as exc:
+            print(f"[Completion Error] Failed to write to {rc_file}: {exc}", file=sys.stderr)
+            return 1
+
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
-    cli = SandboxCLI()
 
-    if not args or args[0] in ("-h", "--help", "help"):
-        print("""==========================================================
-  Agent Sandbox Manager CLI
-==========================================================
-Usage: agent-sandbox <command> [options]
-
-Commands:
-  start <engine...> [--no-host-bridge]   Start one or more engines (e.g. opencode antigravity)
-  stop [engine...]                      Stop one or more engines (bridge stops when none remain)
-  restart <engine...>                   Restart one or more engines (others left running)
-  build [engine...]                     Rebuild the sandbox container image
-  status                                Display sandbox, engine, and bridge status
-  ui [engine]                           Open engine Web UI in browser (defaults to active)
-  workspace add [path] [-y|--force]     Whitelist workspace directory
-  workspace remove <path>               Remove workspace from whitelist
-  workspace list                        List whitelisted workspaces
-  rules [engine]                        Display compiled rules and sources
-  skills [engine]                       Display discovered skills
-  open [subpath]                        Open sandbox state folder in desktop file manager
-  host-bridge [start|stop|restart|status|fg] Manage the macOS host execution bridge
-==========================================================""")
+    # Fast-path for tab completion queries
+    if args and args[0] == "_complete":
+        if len(args) < 4:
+            return 0
+        shell = args[1]
+        try:
+            cword = int(args[2])
+        except ValueError:
+            return 0
+        words = args[3:]
+        cli = SandboxCLI()
+        for candidate in app.complete(cli, shell, cword, words):
+            print(candidate)
         return 0
 
-    cmd = args[0]
-    rest = args[1:]
-
-    if cmd == "start":
-        engines = []
-        no_hb = False
-        for a in rest:
-            if a == "--no-host-bridge":
-                no_hb = True
-            elif a == "--with-host-bridge":
-                no_hb = False
-            elif not a.startswith("-"):
-                engines.append(a)
-        return cli.cmd_start(engines, no_host_bridge=no_hb)
-
-    elif cmd == "stop":
-        engines = [a for a in rest if not a.startswith("-")]
-        return cli.cmd_stop(engines)
-
-    elif cmd == "restart":
-        engines = []
-        no_hb = False
-        for a in rest:
-            if a == "--no-host-bridge":
-                no_hb = True
-            elif a == "--with-host-bridge":
-                no_hb = False
-            elif not a.startswith("-"):
-                engines.append(a)
-        return cli.cmd_restart(engines, no_host_bridge=no_hb)
-
-    elif cmd == "build":
-        engines = [a for a in rest if not a.startswith("-")]
-        return cli.cmd_build(engines)
-
-    elif cmd == "status":
-        return cli.cmd_status()
-
-    elif cmd in ("ui", "web"):
-        engine_name = rest[0] if rest else None
-        return cli.cmd_ui(engine_name)
-
-    elif cmd in ("workspace", "ws"):
-        sub = rest[0] if rest else "list"
-        sub_args = rest[1:]
-        if sub == "add":
-            force = "-y" in sub_args or "--force" in sub_args
-            target = next((x for x in sub_args if not x.startswith("-")), None)
-            return cli.cmd_workspace_add(target, force=force)
-        elif sub in ("remove", "rm"):
-            if not sub_args:
-                print("Usage: agent-sandbox workspace remove <path>", file=sys.stderr)
-                return 1
-            return cli.cmd_workspace_remove(sub_args[0])
-        elif sub in ("list", "ls"):
-            return cli.cmd_workspace_list()
-        else:
-            print(f"Unknown workspace command: {sub}", file=sys.stderr)
-            return 1
-
-    elif cmd == "rules":
-        engine_name = rest[0] if rest else None
-        return cli.cmd_rules(engine_name)
-
-    elif cmd == "skills":
-        engine_name = rest[0] if rest else None
-        return cli.cmd_skills(engine_name)
-
-    elif cmd == "open":
-        target = rest[0] if rest else None
-        return cli.cmd_open(target)
-
-    elif cmd == "host-bridge":
-        sub = rest[0] if rest else "status"
-        if sub in ("start", "--bg", "-d"):
-            cli.start_host_bridge()
-            return 0
-        elif sub == "stop":
-            cli.stop_host_bridge()
-            return 0
-        elif sub == "restart":
-            cli.stop_host_bridge()
-            cli.start_host_bridge()
-            return 0
-        elif sub == "status":
-            pid = cli.get_host_bridge_pid()
-            if pid:
-                print(f"[Status] Host-Exec daemon: Active (PID: {pid}, Listening on port 58433)")
-            elif cli.is_host_bridge_port_open():
-                print("[Status] Host-Exec daemon: Active (Listening on port 58433, PID unknown)")
-            else:
-                print("[Status] Host-Exec daemon: Inactive")
-            return 0
-        elif sub in ("fg", "run"):
-            pid = cli.get_host_bridge_pid()
-            if pid:
-                print(f"[Bridge Error] Host-Exec daemon is already running in background (PID: {pid}).", file=sys.stderr)
-                print("Use 'agent-sandbox host-bridge stop' to stop it before running in foreground.", file=sys.stderr)
-                return 1
-            if cli.is_host_bridge_port_open():
-                print("[Bridge Error] Host-Exec daemon port 58433 is already in use by another process.", file=sys.stderr)
-                return 1
-            daemon_script = os.path.join(cli.repo_root, "packages", "host-exec-daemon", "host_exec_daemon.py")
-            env = os.environ.copy()
-            env["AGENT_SANDBOX_STATE_DIR"] = cli.sandbox_dir
-            env["HOST_EXEC_PORT"] = "58433"
-            return subprocess.run([sys.executable, daemon_script], env=env).returncode
-        else:
-            print(f"Unknown host-bridge command: {sub}", file=sys.stderr)
-            return 1
-
-    else:
-        print(f"Unknown command: {cmd}", file=sys.stderr)
-        return 1
+    cli = SandboxCLI()
+    return app.dispatch(cli, args)
 
 
 if __name__ == "__main__":
