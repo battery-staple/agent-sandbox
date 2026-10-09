@@ -1,0 +1,44 @@
+name: Docker Build
+
+# Building the sandbox image is the slowest check here, so it only runs
+# when the image inputs change (the Dockerfile and everything it COPYs:
+# engines/, guest/, customizations/).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.sandbox"
+      - "docker-compose.yml"
+      - "engines/**"
+      - "guest/**"
+      - "customizations/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "Dockerfile.sandbox"
+      - "docker-compose.yml"
+      - "engines/**"
+      - "guest/**"
+      - "customizations/**"
+      - ".github/workflows/docker.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sandbox image
+        run: docker build -f Dockerfile.sandbox -t agent-sandbox:ci .
+
+      # Smoke test: the image is advertised with these toolchains (README
+      # "Pre-Installed Toolchains"); a broken layer install should fail here
+      # rather than in a user's first `agent-sandbox build`.
+      - name: Smoke test toolchains
+        run: |
+          docker run --rm --entrypoint bash agent-sandbox:ci -lc '
+            set -e
+            node --version
+            python3 --version
+            go version
+          '
