@@ -1,0 +1,21 @@
+name: Markdown Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  markdownlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Pinned version: the two deployed cli2 releases broke config
+      # compatibility, so a floating npx pin is a reviewable change.
+      - name: Run markdownlint-cli2 on all Markdown
+        run: npx --yes markdownlint-cli2@0.18.1 "**/*.md"

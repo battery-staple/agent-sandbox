@@ -13,6 +13,7 @@ Use this skill when you need to invoke tools or commands that only exist on the 
 - **macOS-Specific Host Tools** (Xcode, Apple SDKs, iOS Simulator, macOS Keychain, macOS system utilities): **Use `host-exec`**.
 
 ### Discovering Permitted Host Tools Live
+
 To inspect the current whitelist of available macOS tools, allowed argument patterns, descriptions, and approval requirements, run:
 
 ```bash
@@ -29,7 +30,8 @@ Run the `host-exec` CLI tool followed by the host command and its arguments:
 host-exec <command> [args...]
 ```
 
-### Examples:
+### Examples
+
 ```bash
 # List all whitelisted host commands and policies
 host-exec --list
@@ -64,18 +66,23 @@ host-exec open -a Simulator
 ## 4. Handling Host Bridge Errors & Remediation
 
 ### Scenario A: Host Bridge Daemon Is Not Running
+
 If a command fails with an error indicating the host bridge daemon is unreachable:
-```
+
+```text
 [HOST-EXEC ERROR] Host Bridge Daemon is not running on the macOS host
 ```
 
 **Guidance for Agent**:
+
 1. **Do not retry immediately**: The command cannot succeed while the daemon is offline.
 2. **Inform the user clearly**: Explain that the requested tool requires execution on the macOS host, but the host bridge daemon is not running.
 3. **Provide the exact remediation command**: Ask the user to start the daemon in their macOS terminal:
+
    ```bash
    agent-sandbox host-bridge
    ```
+
    *(or `./bin/agent-sandbox host-bridge` from the repository directory)*
 4. **Wait for user confirmation**: Once the user confirms the host bridge is active, retry the command.
 
@@ -84,16 +91,20 @@ If a command fails with an error indicating the host bridge daemon is unreachabl
 ## 5. Handling Whitelist Rejections & Approvals
 
 ### Scenario B: Whitelist Policy Rejection
+
 If a command fails with a whitelist rejection error, `host-exec` will automatically display the list of currently permitted commands and argument patterns.
 
 **Guidance for Agent**:
+
 1. Review the output of `host-exec --list` to check if an alternative whitelisted command or argument format is available.
 2. If the tool is not whitelisted, inform the user and direct them to add the command to `allowed_commands` in `~/.agent-sandbox/whitelist.yaml` on their macOS host.
 
 ### Scenario C: Interactive User Approval Denied
+
 If a command fails with:
 `[HOST-EXEC ERROR] Host Execution Failed: Execution denied by user via native approval dialog`
 
 **Guidance for Agent**:
+
 1. The user explicitly chose **Deny** on the native macOS approval dialog.
 2. Do not retry the command without user instruction. Respect the user's decision and ask how they'd like to proceed.
