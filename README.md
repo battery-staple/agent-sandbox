@@ -81,7 +81,18 @@ Symlink the CLI script into your `PATH`:
 sudo ln -sf $(pwd)/bin/agent-sandbox /usr/local/bin/agent-sandbox
 ```
 
-### 3. Whitelist Workspace & Start
+### 3. Setup Shell Tab-Completion (Recommended)
+Enable instant tab-completion for subcommands, engines, flags, and whitelisted workspaces:
+```bash
+# Automatically configure your active shell profile (~/.zshrc or ~/.bashrc):
+agent-sandbox completion install
+
+# Or load directly into your current terminal session:
+eval "$(agent-sandbox completion zsh)"  # Zsh (macOS default)
+eval "$(agent-sandbox completion bash)" # Bash
+```
+
+### 4. Whitelist Workspace & Start
 ```bash
 # Whitelist your project workspace (defaults to current directory if omitted)
 agent-sandbox workspace add /path/to/workspace
@@ -93,7 +104,7 @@ agent-sandbox start opencode
 agent-sandbox start opencode antigravity
 ```
 
-### 4. Access the Web Interface
+### 5. Access the Web Interface
 ```bash
 # Opens browser to active engine Web UI
 agent-sandbox ui
@@ -163,3 +174,4 @@ Automated browser requests (Playwright, Puppeteer, CDP) are handled transparentl
 | `agent-sandbox skills [engine]` | Display discovered directory and catalog skills. |
 | `agent-sandbox open [subpath]` | Open `~/.agent-sandbox/` directory in macOS Finder. |
 | `agent-sandbox host-bridge [start|stop|status]` | Manage the macOS host binary execution bridge daemon. |
+| `agent-sandbox completion [zsh|bash|install]` | Output or install shell tab-completion scripts (Zsh & Bash). |
