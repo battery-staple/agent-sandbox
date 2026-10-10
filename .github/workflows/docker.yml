@@ -28,8 +28,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Docker Hub rate-limits the shared GitHub-hosted runner IP pool
+      # (observed: 429 on manifests, 504 on auth.docker.io), which fails
+      # the base-image pull rather than the build. Retry with linear
+      # backoff instead of failing the whole run on registry flakiness.
       - name: Build sandbox image
-        run: docker build -f Dockerfile.sandbox -t agent-sandbox:ci .
+        run: |
+          for attempt in 1 2 3; do
+            if docker build -f Dockerfile.sandbox -t agent-sandbox:ci .; then
+              exit 0
+            fi
+            echo "::warning::Build attempt $attempt failed, retrying after backoff"
+            sleep $((30 * attempt))
+          done
+          exit 1
 
       # Smoke test: the image is advertised with these toolchains (README
       # "Pre-Installed Toolchains"); a broken layer install should fail here
