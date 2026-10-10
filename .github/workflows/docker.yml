@@ -1,0 +1,56 @@
+name: Docker Build
+
+# Building the sandbox image is the slowest check here, so it only runs
+# when the image inputs change (the Dockerfile and everything it COPYs:
+# engines/, guest/, customizations/).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.sandbox"
+      - "docker-compose.yml"
+      - "engines/**"
+      - "guest/**"
+      - "customizations/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "Dockerfile.sandbox"
+      - "docker-compose.yml"
+      - "engines/**"
+      - "guest/**"
+      - "customizations/**"
+      - ".github/workflows/docker.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Docker Hub rate-limits the shared GitHub-hosted runner IP pool
+      # (observed: 429 on manifests, 504 on auth.docker.io), which fails
+      # the base-image pull rather than the build. Retry with linear
+      # backoff instead of failing the whole run on registry flakiness.
+      - name: Build sandbox image
+        run: |
+          for attempt in 1 2 3; do
+            if docker build -f Dockerfile.sandbox -t agent-sandbox:ci .; then
+              exit 0
+            fi
+            echo "::warning::Build attempt $attempt failed, retrying after backoff"
+            sleep $((30 * attempt))
+          done
+          exit 1
+
+      # Smoke test: the image is advertised with these toolchains (README
+      # "Pre-Installed Toolchains"); a broken layer install should fail here
+      # rather than in a user's first `agent-sandbox build`.
+      - name: Smoke test toolchains
+        run: |
+          docker run --rm --entrypoint bash agent-sandbox:ci -lc '
+            set -e
+            node --version
+            python3 --version
+            go version
+          '
