@@ -29,19 +29,32 @@ jobs:
       - uses: actions/checkout@v4
 
       # Docker Hub rate-limits the shared GitHub-hosted runner IP pool
-      # (observed: 429 on manifests, 504 on auth.docker.io), which fails
-      # the base-image pull rather than the build. Retry with linear
-      # backoff instead of failing the whole run on registry flakiness.
+      # (429s), and its auth endpoint intermittently 504s. Both are
+      # transient, so retry only those; a Dockerfile regression must fail
+      # fast rather than burn all three attempts. Retry at the step level,
+      # not the job, so BuildKit reuses layers cached by the failed attempt.
       - name: Build sandbox image
         run: |
-          for attempt in 1 2 3; do
-            if docker build -f Dockerfile.sandbox -t agent-sandbox:ci .; then
-              exit 0
+          attempt=1
+          until build_log=$(docker build -f Dockerfile.sandbox -t agent-sandbox:ci . 2>&1); do
+            echo "$build_log"
+            # Retry only transient registry/network failures.
+            if ! grep -qE 'Too Many Requests|Gateway Timeout|Temporary failure in name resolution|i/o timeout|TLS handshake timeout|connection reset by peer' <<<"$build_log"; then
+              echo "::error::docker build failed with a non-transient error on attempt $attempt; not retrying."
+              exit 1
             fi
-            echo "::warning::Build attempt $attempt failed, retrying after backoff"
-            sleep $((30 * attempt))
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::docker build still failing after $attempt attempts."
+              exit 1
+            fi
+            # Exponential backoff with jitter; fixed sleeps collide with
+            # other runners retrying the same rate limit.
+            backoff=$((30 * 2 ** (attempt - 1)))
+            jitter=$((RANDOM % 15))
+            echo "::warning::Attempt $attempt hit a transient registry/network error; retrying in $((backoff + jitter))s."
+            sleep $((backoff + jitter))
+            attempt=$((attempt + 1))
           done
-          exit 1
 
       # Smoke test: the image is advertised with these toolchains (README
       # "Pre-Installed Toolchains"); a broken layer install should fail here
