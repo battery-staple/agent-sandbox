@@ -1,0 +1,40 @@
+name: Dependency Audit
+
+# pip-audit checks the runtime dependency surface (pyyaml, jsonschema and
+# their transitive deps) against the OSV database. The weekly catch
+# matters most: a CVE published after your last merge still ships in the
+# sandbox image until someone looks.
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      # Audit only the environment built above: the sandbox runtime's
+      # actual attack surface, not the runner's preinstalled packages.
+      - name: Run pip-audit
+        run: pip-audit
