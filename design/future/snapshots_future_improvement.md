@@ -6,9 +6,10 @@ This document outlines an optional future enhancement for the **Antigravity Dock
 
 ## 1. Overview & Motivation
 
-In the base sandbox architecture, system-level packages and development toolchains are declaratively installed and managed in `Dockerfile.sandbox`. 
+In the base sandbox architecture, system-level packages and development toolchains are declaratively installed and managed in `Dockerfile.sandbox`.
 
 While this ensures a clean, reproducible base image, developers occasionally want the ability to:
+
 - **Test experimental agent workflows**: Give an agent freedom to modify system files or test package migrations with a 1-click safety net.
 - **Instant Rollbacks**: Revert the container image and persistent user volumes to an earlier timestamped checkpoint in ~2 seconds without rebuilding from scratch.
 
@@ -60,6 +61,7 @@ antigravity-sandbox snapshot rollback "pre-migration-v1"
 ```
 
 ### Script Implementation Logic
+
 ```bash
 case "$1" in
   snapshot)

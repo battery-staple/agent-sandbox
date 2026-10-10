@@ -5,7 +5,9 @@
 The **Multi-Agent Container Sandbox** (`agent-sandbox`) provides a unified, secure, high-performance containerized execution runtime for autonomous AI coding agents (such as **OpenCode**, **Google Antigravity**, and future engines) using Docker on macOS.
 
 ### 1.1 The Core Problem & Security Invariant
+
 Autonomous coding agents routinely execute shell commands, compile source trees, and manipulate environments. Running these tools directly on macOS exposes developers to critical hazards:
+
 - Accidental filesystem destruction (e.g. `rm -rf /` or recursive deletion of root/home directories).
 - Exposure of sensitive host credentials (`~/.ssh`, `~/.aws`, Keychain, browser cookies, API tokens).
 - System-wide environment pollution from unvetted global package managers (`brew`, `npm`, `pip`).
@@ -86,13 +88,17 @@ flowchart LR
 ```
 
 ### 3.1 The Engine Adapter Contract
+
 Every engine lives in `engines/<name>/` and implements three files:
+
 1. `manifest.yaml`: Declarative metadata specifying the engine name, port, web URL, rule target, skill directory, catalogs, and mounts.
 2. `install.sh`: An idempotent, multi-architecture (arm64/amd64) shell script that installs the engine binary into `/usr/local/bin/`.
 3. `entrypoint.sh`: Starts the engine daemon or web server, binding to `0.0.0.0`.
 
 ### 3.2 Formal JSON Schema (`config/engine-manifest.schema.json`)
+
 Engine manifests are validated against a JSON Schema (Draft 2020-12):
+
 - `name`: Must match `^[a-z0-9_-]+$` and strictly equal the parent directory name.
 - `port`: Integer between 1 and 65535 (the single source of truth for networking).
 - `web_url`: URI opened by the `agent-sandbox ui [engine]` command.
@@ -101,7 +107,9 @@ Engine manifests are validated against a JSON Schema (Draft 2020-12):
 - `mounts`: Host directory paths to bind-mount if present.
 
 ### 3.3 Dynamic Compose Override Generation
+
 The base `docker-compose.yml` is fully generic and contains zero hardcoded agent ports, names, or engine references. All engine-specific compose content is generated at runtime into `~/.agent-sandbox/docker-compose.override.yml`. When starting an engine, the orchestrator:
+
 - Loads the engine-agnostic service fragment (`config/compose.common.yaml`) as the shared runtime defaults (image, build context, caps, resources, shared memory, dev ports, host-exec env).
 - Emits a complete service per active engine by merging that fragment with engine identity (`container_name: agent-sandbox-<name>`, `ENGINE=<name>`, `SANDBOX_SKILLS_TARGET` from `manifest.skills.target_dir`), the convention home volume (`agent_home_<name>:/home/developer`), the host-exec IPC auth mount, and the dynamic per-run mounts:
   - Injects port forwards (`127.0.0.1:<port>:<port>`).
@@ -114,10 +122,13 @@ The base `docker-compose.yml` is fully generic and contains zero hardcoded agent
 Because the override defines exactly the requested engines, `docker compose up` needs no `--profile` filtering.
 
 ### 3.4 Convention Volumes & Legacy Migration
+
 Each engine mounts an isolated named volume:
-```
+
+```text
 agent_home_<name>:/home/developer
 ```
+
 To preserve user data from older sandbox versions, `agent_sandbox.compose.volumes` automatically detects legacy `antigravity_home_persist` volumes and migrates data to `agent_home_antigravity` via a transient copy container before starting.
 
 ---
@@ -126,7 +137,7 @@ To preserve user data from older sandbox versions, `agent_sandbox.compose.volume
 
 Customizations are structured cleanly under `~/.agent-sandbox/`:
 
-```
+```text
 ~/.agent-sandbox/
 ├── whitelist.yaml                  # Active whitelisted workspaces and commands
 ├── ipc/                            # Shared HMAC secrets and PID files
@@ -146,7 +157,9 @@ Customizations are structured cleanly under `~/.agent-sandbox/`:
 ```
 
 ### 4.1 5-Layer Rule Compilation Hierarchy
+
 Rules are compiled deterministically in strict priority order:
+
 1. **Built-in Common Container Rules**: `customizations/rules/*.md` (universal container isolation, path parity, and `host-exec` usage).
 2. **Common User Sandbox Rules**: `~/.agent-sandbox/common/rules/*.md` (user rules applied across all engines).
 3. **Built-in Engine Rules**: `engines/<engine>/rules/*.md` (repo rules specific to that engine, e.g. Antigravity's `BypassSandbox` policy).
@@ -156,7 +169,9 @@ Rules are compiled deterministically in strict priority order:
 The compiled output is saved to `~/.agent-sandbox/<engine>/<target>` and bind-mounted over the container target path. This ensures each container agent receives only accurate, relevant rules without ever modifying host rule files.
 
 ### 4.2 Dual Skill Resolution Pipeline
+
 Skills are resolved through two complementary engines:
+
 - **`DirectorySkillResolver`**: Scans `~/.agent-sandbox/common/skills/` and `~/.agent-sandbox/<engine>/skills/`. Subdirectories containing `SKILL.md` are mounted into the engine's `skills.target_dir`. Engine-specific skills override common skills of the same name.
 - **`CatalogSkillResolver`**: Discovers skills referenced in JSON catalog files (`skills.json`, `.agents/skills.json`), traverses recursive `"inherits"` chains with cycle detection, validates host paths, prunes skills inside workspaces, and mounts external skill repositories `:ro`.
 
@@ -165,13 +180,17 @@ Skills are resolved through two complementary engines:
 ## 5. Host Binary Execution Bridge (Host-Exec)
 
 ### 5.1 Architecture & HMAC Authentication
+
 Because the container runs Linux, macOS-native binaries (`xcodebuild`, Simulator `open`, Keychain) cannot execute directly inside the container.
+
 - The **Host-Exec Daemon** runs on macOS, listening on `127.0.0.1:58433`.
 - The **Host-Exec Guest Client** (`/usr/local/bin/host-exec`) runs inside the container.
 - Requests are authenticated via HMAC-SHA256 signatures using a shared token mounted at `/var/run/host-exec`.
 
 ### 5.2 Whitelist Policy & Concurrency
+
 The whitelist policy in `~/.agent-sandbox/whitelist.yaml` defines allowed commands and regexes:
+
 - **Non-blocking parallel execution**: Asynchronous command execution without head-of-line blocking.
 - **Modal Serialization**: Interactive AppleScript dialogs acquire a FIFO lock to prevent overlapping popups.
 - **Process Reaping**: Orphaned child processes are automatically terminated upon client disconnect.
@@ -183,11 +202,13 @@ The whitelist policy in `~/.agent-sandbox/whitelist.yaml` defines allowed comman
 To add support for a new agent engine (e.g. `claude-code` or `aider`):
 
 1. **Create Engine Directory**:
+
    ```bash
    mkdir -p engines/<name>
    ```
 
 2. **Create `engines/<name>/manifest.yaml`**:
+
    ```yaml
    name: <name>
    port: <port>
@@ -209,11 +230,13 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
 
 4. **Create `engines/<name>/entrypoint.sh`**:
    Must start the engine server in the foreground (Docker-supervised). OpenCode V2 example:
+
    ```bash
    #!/usr/bin/env bash
    set -e
    exec opencode serve --hostname 0.0.0.0 --port 4096 "$@"
    ```
+
    (`opencode web` was removed in V2; `serve` is the API+web server.)
 
 5. **(Optional) Add a per-engine user config adapter**:
@@ -227,6 +250,7 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
    Add any engine-specific guidance (e.g. tool calling conventions or engine security policies) to `engines/<name>/rules/*.md`.
 
 7. **Rebuild Container**:
+
    ```bash
    bin/agent-sandbox build
    bin/agent-sandbox start <name>
