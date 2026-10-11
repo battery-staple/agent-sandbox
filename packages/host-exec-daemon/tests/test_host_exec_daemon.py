@@ -40,9 +40,26 @@ class TestResolveCwd(unittest.TestCase):
         nonexistent = "/path/that/does/not/exist/for/sure_12345"
         self.assertEqual(resolve_cwd(nonexistent), os.path.expanduser("~"))
 
+    def test_resolve_nonexistent_directory_warns_with_both_directories(self):
+        # The warning must name the in-container directory and the resolved
+        # out-of-container working directory so the fallback is never silent.
+        nonexistent = "/path/that/does/not/exist/for/sure_12345"
+        with self.assertLogs(level="WARNING") as cm:
+            self.assertEqual(resolve_cwd(nonexistent), os.path.expanduser("~"))
+
+        output = "\n".join(cm.output)
+        self.assertIn(nonexistent, output)
+        self.assertIn(os.path.expanduser("~"), output)
+
+    def test_resolve_valid_directory_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertNoLogs(level="WARNING"):
+                self.assertEqual(resolve_cwd(tmpdir), tmpdir)
+
     def test_resolve_none_or_empty(self):
-        self.assertEqual(resolve_cwd(None), os.path.expanduser("~"))
-        self.assertEqual(resolve_cwd(""), os.path.expanduser("~"))
+        with self.assertNoLogs(level="WARNING"):
+            self.assertEqual(resolve_cwd(None), os.path.expanduser("~"))
+            self.assertEqual(resolve_cwd(""), os.path.expanduser("~"))
 
 
 class TestVerifyToken(unittest.TestCase):
