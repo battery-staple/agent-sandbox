@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Mapping, Sequence
 from ..config.models import EngineManifest
 from .directory import skill_dirs
 
@@ -14,6 +15,13 @@ def _is_within(path: str, ancestor: str) -> bool:
     if path == ancestor:
         return True
     return path.startswith(ancestor.rstrip(os.sep) + os.sep)
+
+
+@dataclass(frozen=True)
+class CatalogRejection:
+    path: str
+    source_catalog: str
+    reason: str
 
 
 class CatalogSkillResolver:
@@ -39,6 +47,7 @@ class CatalogSkillResolver:
             for r in (allowed_skill_roots or ())
             if r and os.path.isdir(os.path.abspath(os.path.expanduser(r)))
         ]
+        self.last_rejections: list[CatalogRejection] = []
 
     def _roots_for_engine(self, engine: EngineManifest) -> list[str]:
         """Explicit allowed roots plus the engine's host-only skill directories."""
@@ -157,24 +166,28 @@ class CatalogSkillResolver:
 
         return raw_entries
 
+    @staticmethod
+    def _resolve_entry_path(item: dict[str, str]) -> str:
+        """Resolves a raw catalog entry to an absolute host path."""
+        raw_path = item["path"]
+        base_dir = item["base_dir"]
+        if raw_path.startswith("~"):
+            resolved = os.path.abspath(os.path.expanduser(raw_path))
+        elif os.path.isabs(raw_path):
+            resolved = os.path.abspath(raw_path)
+        else:
+            resolved = os.path.abspath(os.path.join(base_dir, raw_path))
+        return resolved.rstrip("/")
+
     def resolve_and_validate_paths(self, raw_entries: Sequence[dict[str, str]], warn: bool = True) -> list[str]:
         """Resolves path entries and verifies directory existence on host."""
         valid: list[str] = []
         seen: set[str] = set()
 
         for item in raw_entries:
-            raw_path = item["path"]
-            base_dir = item["base_dir"]
+            resolved = self._resolve_entry_path(item)
             source = item.get("source_config", "unknown")
 
-            if raw_path.startswith("~"):
-                resolved = os.path.abspath(os.path.expanduser(raw_path))
-            elif os.path.isabs(raw_path):
-                resolved = os.path.abspath(raw_path)
-            else:
-                resolved = os.path.abspath(os.path.join(base_dir, raw_path))
-
-            resolved = resolved.rstrip("/")
             if resolved in seen:
                 continue
             seen.add(resolved)
@@ -208,37 +221,71 @@ class CatalogSkillResolver:
 
         return final_skills
 
-    def filter_allowed_roots(self, skill_paths: Sequence[str], roots: Sequence[str]) -> list[str]:
+    def filter_allowed_roots(
+        self,
+        skill_paths: Sequence[str],
+        roots: Sequence[str],
+        warn: bool = True,
+        sources: Mapping[str, str] | None = None,
+    ) -> list[str]:
         """Restricts catalog skills to host-only roots and returns canonical paths.
 
         Catalog files can live in agent-writable locations, so a resolved path is
         only mounted when its real (symlink-resolved) location falls inside a root
         the agent cannot write to. The canonical path from that single resolution
         is what gets mounted, so a symlink swapped between validation and
-        ``docker compose up`` cannot redirect the bind mount. Rejections are always
-        reported because they indicate either misconfiguration or an escape attempt.
+        ``docker compose up`` cannot redirect the bind mount. Rejections are
+        recorded on ``last_rejections`` and only printed when ``warn`` is true,
+        so silent callers (e.g. status displays) can report them their own way.
         """
         allowed: list[str] = []
         seen: set[str] = set()
         real_roots = [os.path.realpath(r) for r in roots]
+        rejections: list[CatalogRejection] = []
         for path in skill_paths:
             canonical = self._allowed_realpath(path, real_roots)
             if canonical is None:
-                print(
-                    f"[Sandbox Warning] Refusing to mount catalog skill outside allowed roots: "
-                    f"{path}. Add its directory to 'allowed_skill_roots' in whitelist.yaml to permit it.",
-                    file=sys.stderr,
+                source = sources.get(path, "unknown") if sources else "unknown"
+                rejections.append(
+                    CatalogRejection(
+                        path=path,
+                        source_catalog=source,
+                        reason="outside allowed skill roots",
+                    )
                 )
+                if warn:
+                    print(
+                        f"[Sandbox Warning] Refusing to mount catalog skill outside allowed roots: "
+                        f"{path} (referenced in {source}). "
+                        f"Run 'agent-sandbox skill-root add <dir>' to allow it.",
+                        file=sys.stderr,
+                    )
                 continue
             if canonical not in seen:
                 seen.add(canonical)
                 allowed.append(canonical)
+        self.last_rejections = rejections
         return sorted(allowed)
+
+    def resolve_with_rejections(
+        self, engine: EngineManifest, warn: bool = True
+    ) -> tuple[list[str], list[CatalogRejection]]:
+        """Resolves catalog skills and returns accepted paths plus rejections."""
+        catalog_files = self.find_catalog_files(engine)
+        raw_entries = self.parse_catalogs(catalog_files)
+        sources: dict[str, str] = {}
+        for item in raw_entries:
+            sources.setdefault(
+                self._resolve_entry_path(item), item.get("source_config", "unknown")
+            )
+        valid_paths = self.resolve_and_validate_paths(raw_entries, warn=warn)
+        uncovered = self.filter_conflicts(valid_paths)
+        accepted = self.filter_allowed_roots(
+            uncovered, self._roots_for_engine(engine), warn=warn, sources=sources
+        )
+        return accepted, list(self.last_rejections)
 
     def resolve_for_engine(self, engine: EngineManifest, warn: bool = True) -> list[str]:
         """Runs the complete catalog discovery and resolution pipeline for an engine."""
-        catalog_files = self.find_catalog_files(engine)
-        raw_entries = self.parse_catalogs(catalog_files)
-        valid_paths = self.resolve_and_validate_paths(raw_entries, warn=warn)
-        uncovered = self.filter_conflicts(valid_paths)
-        return self.filter_allowed_roots(uncovered, self._roots_for_engine(engine))
+        accepted, _ = self.resolve_with_rejections(engine, warn=warn)
+        return accepted

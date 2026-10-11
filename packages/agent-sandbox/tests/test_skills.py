@@ -1,4 +1,6 @@
 """Tests for DirectorySkillResolver and CatalogSkillResolver."""
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -240,6 +242,75 @@ class TestSkills(unittest.TestCase):
         resolver = CatalogSkillResolver(allowed_workspaces=[ws_dir], allowed_skill_roots=[trusted])
         resolved = resolver.resolve_for_engine(engine, warn=False)
         self.assertEqual(resolved, [])
+
+    def test_filter_allowed_roots_respects_warn_flag(self):
+        outside = os.path.join(self.temp_dir, "outside")
+        os.makedirs(outside)
+
+        resolver = CatalogSkillResolver(allowed_workspaces=[])
+        with contextlib.redirect_stderr(io.StringIO()) as silent:
+            allowed = resolver.filter_allowed_roots([outside], [], warn=False)
+        self.assertEqual(allowed, [])
+        self.assertEqual(silent.getvalue(), "")
+        self.assertEqual(len(resolver.last_rejections), 1)
+        rejection = resolver.last_rejections[0]
+        self.assertEqual(rejection.path, outside)
+        self.assertTrue(rejection.reason)
+
+        with contextlib.redirect_stderr(io.StringIO()) as noisy:
+            resolver.filter_allowed_roots([outside], [], warn=True)
+        self.assertIn("outside allowed roots", noisy.getvalue())
+
+    def test_resolve_for_engine_warn_false_is_silent(self):
+        ws_dir = os.path.join(self.temp_dir, "workspace")
+        os.makedirs(ws_dir)
+
+        sensitive = os.path.join(self.temp_dir, "sensitive")
+        os.makedirs(sensitive)
+
+        with open(os.path.join(ws_dir, "skills.json"), "w") as f:
+            json.dump({"entries": [{"path": sensitive}]}, f)
+
+        engine = EngineManifest(
+            name="test",
+            port=1234,
+            web_url="http://localhost",
+            skills=EngineSkillConfig(target_dir="skills", catalogs=("skills.json",)),
+        )
+
+        resolver = CatalogSkillResolver(allowed_workspaces=[ws_dir])
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            resolved = resolver.resolve_for_engine(engine, warn=False)
+        self.assertEqual(resolved, [])
+        self.assertEqual(err.getvalue(), "")
+
+    def test_resolve_with_rejections_names_declaring_catalog(self):
+        ws_dir = os.path.join(self.temp_dir, "workspace")
+        os.makedirs(ws_dir)
+
+        sensitive = os.path.join(self.temp_dir, "sensitive")
+        os.makedirs(sensitive)
+
+        catalog_path = os.path.join(ws_dir, "skills.json")
+        with open(catalog_path, "w") as f:
+            json.dump({"entries": [{"path": sensitive}]}, f)
+
+        engine = EngineManifest(
+            name="test",
+            port=1234,
+            web_url="http://localhost",
+            skills=EngineSkillConfig(target_dir="skills", catalogs=("skills.json",)),
+        )
+
+        resolver = CatalogSkillResolver(allowed_workspaces=[ws_dir])
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            accepted, rejections = resolver.resolve_with_rejections(engine, warn=False)
+        self.assertEqual(accepted, [])
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(len(rejections), 1)
+        self.assertEqual(rejections[0].path, os.path.abspath(sensitive))
+        self.assertEqual(rejections[0].source_catalog, os.path.abspath(catalog_path))
+        self.assertTrue(rejections[0].reason)
 
 
 if __name__ == "__main__":

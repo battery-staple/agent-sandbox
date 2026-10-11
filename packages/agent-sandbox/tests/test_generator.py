@@ -1,4 +1,6 @@
 """Tests for compose override generator in agent_sandbox.compose.generator."""
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -193,6 +195,52 @@ class TestGenerator(unittest.TestCase):
             parsed = yaml.safe_load(f)
         volumes = parsed["services"]["antigravity"]["volumes"]
         self.assertTrue(any(v == f"{sensitive}:{sensitive}:ro" for v in volumes))
+
+    def test_rejected_catalog_skills_print_single_summary(self):
+        """Denied catalog entries produce one summary line, not per-entry spam."""
+        sensitive = os.path.join(self.temp_dir, "sensitive")
+        os.makedirs(sensitive)
+        os.makedirs(os.path.join(self.ws_dir, ".agents"))
+        catalog_path = os.path.join(self.ws_dir, ".agents", "skills.json")
+        with open(catalog_path, "w", encoding="utf-8") as f:
+            import json
+            json.dump({"entries": [{"path": sensitive}]}, f)
+
+        engine = EngineManifest(
+            name="antigravity",
+            port=58432,
+            web_url="https://localhost:58432",
+            skills=EngineSkillConfig(
+                target_dir="/home/developer/.gemini/antigravity/builtin/skills",
+                catalogs=(".agents/skills.json",),
+            ),
+            mounts=("~/.gemini",),
+        )
+        override_file = os.path.join(self.temp_dir, "docker-compose.override.yml")
+
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            generate_compose_override(
+                active_engines=[engine],
+                config=SandboxConfig(allowed_workspaces=(self.ws_dir,)),
+                repo_root=self.repo_root,
+                sandbox_dir=self.sandbox_dir,
+                override_file=override_file,
+                fs_root=self.fs_root,
+            )
+        lines = [line for line in err.getvalue().splitlines() if "catalog skill" in line]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("agent-sandbox skills", lines[0])
+
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            generate_compose_override(
+                active_engines=[engine],
+                config=SandboxConfig(allowed_workspaces=(self.ws_dir,), allowed_skill_roots=(sensitive,)),
+                repo_root=self.repo_root,
+                sandbox_dir=self.sandbox_dir,
+                override_file=override_file,
+                fs_root=self.fs_root,
+            )
+        self.assertEqual(err.getvalue(), "")
 
     def test_generate_compose_override_preserves_existing_services(self):
         engine_anti = EngineManifest(

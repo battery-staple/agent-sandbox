@@ -475,6 +475,13 @@ class SandboxCLI:
         for ws in config.allowed_workspaces:
             status = "EXISTS" if os.path.isdir(os.path.expanduser(ws)) else "NOT FOUND"
             print(f"  - {ws} [{status}]")
+
+        print(f"\nAllowed Skill Roots ({len(config.allowed_skill_roots)}):")
+        if not config.allowed_skill_roots:
+            print("  (None allowed yet. Use: agent-sandbox skill-root add <path>)")
+        for root in config.allowed_skill_roots:
+            status = "EXISTS" if os.path.isdir(os.path.expanduser(root)) else "NOT FOUND"
+            print(f"  - {root} [{status}]")
         print("==========================================================")
         return 0
 
@@ -572,6 +579,59 @@ class SandboxCLI:
             print(f"  - {ws}")
         return 0
 
+    def cmd_skill_root_add(self, path: str | None = None, force: bool = False) -> int:
+        config = self.ensure_scaffolding()
+        target = os.path.abspath(os.path.expanduser(path or os.getcwd()))
+
+        if not os.path.isdir(target):
+            if force:
+                os.makedirs(target, exist_ok=True)
+            else:
+                print(f"[Sandbox Error] Directory does not exist: {target}", file=sys.stderr)
+                return 1
+
+        curr_roots = list(config.allowed_skill_roots)
+        if target in curr_roots:
+            print(f"[Sandbox] Skill root already allowed: {target}")
+            return 0
+
+        curr_roots.append(target)
+        new_config = replace(config, allowed_skill_roots=tuple(curr_roots))
+        save_sandbox_config(new_config, self.config_file)
+        print(f"[Sandbox] Successfully allowed skill root: {target}")
+
+        running = self.get_running_engines()
+        if running:
+            print("[Sandbox] Updating running containers with new skill root mount...")
+            self.cmd_start([e.name for e in running])
+        return 0
+
+    def cmd_skill_root_remove(self, path: str) -> int:
+        config = self.ensure_scaffolding()
+        target = os.path.abspath(os.path.expanduser(path))
+        curr_roots = list(config.allowed_skill_roots)
+        if target not in curr_roots:
+            print(f"[Sandbox] Skill root not allowed: {target}")
+            return 0
+
+        curr_roots.remove(target)
+        new_config = replace(config, allowed_skill_roots=tuple(curr_roots))
+        save_sandbox_config(new_config, self.config_file)
+        print(f"[Sandbox] Removed skill root: {target}")
+
+        running = self.get_running_engines()
+        if running:
+            print("[Sandbox] Updating running containers...")
+            self.cmd_start([e.name for e in running])
+        return 0
+
+    def cmd_skill_root_list(self) -> int:
+        config = self.ensure_scaffolding()
+        print(f"Allowed Skill Roots ({len(config.allowed_skill_roots)}):")
+        for root in config.allowed_skill_roots:
+            print(f"  - {root}")
+        return 0
+
     def cmd_rules(self, engine_name: str | None = None) -> int:
         config = self.ensure_scaffolding()
         engines = [self.registry.get(engine_name)] if engine_name else self.registry.list_all()
@@ -612,10 +672,15 @@ class SandboxCLI:
             for name, path in sorted(dir_skills.items()):
                 print(f"    - {name}: {path}")
 
-            cat_skills = catalog_resolver.resolve_for_engine(e, warn=False)
+            cat_skills, rejections = catalog_resolver.resolve_with_rejections(e, warn=False)
             print(f"  Catalog Skills ({len(cat_skills)}):")
             for cp in sorted(cat_skills):
                 print(f"    - {cp}")
+            if rejections:
+                print(f"  Rejected Catalog Skills ({len(rejections)}):")
+                for r in rejections:
+                    print(f"    - {r.path} (from {r.source_catalog}): {r.reason}.")
+                    print(f"      To allow: agent-sandbox skill-root add <dir>")
         print("==========================================================")
         return 0
 
@@ -657,6 +722,9 @@ Commands:
   workspace add [path] [-y|--force]     Whitelist workspace directory
   workspace remove <path>               Remove workspace from whitelist
   workspace list                        List whitelisted workspaces
+  skill-root add [path] [-y|--force]    Allow catalog skills under directory
+  skill-root remove <path>              Remove directory from allowed skill roots
+  skill-root list                       List allowed skill roots
   rules [engine]                        Display compiled rules and sources
   skills [engine]                       Display discovered skills
   open [subpath]                        Open sandbox state folder in desktop file manager
@@ -722,6 +790,24 @@ Commands:
             return cli.cmd_workspace_list()
         else:
             print(f"Unknown workspace command: {sub}", file=sys.stderr)
+            return 1
+
+    elif cmd == "skill-root":
+        sub = rest[0] if rest else "list"
+        sub_args = rest[1:]
+        if sub == "add":
+            force = "-y" in sub_args or "--force" in sub_args
+            target = next((x for x in sub_args if not x.startswith("-")), None)
+            return cli.cmd_skill_root_add(target, force=force)
+        elif sub in ("remove", "rm"):
+            if not sub_args:
+                print("Usage: agent-sandbox skill-root remove <path>", file=sys.stderr)
+                return 1
+            return cli.cmd_skill_root_remove(sub_args[0])
+        elif sub in ("list", "ls"):
+            return cli.cmd_skill_root_list()
+        else:
+            print(f"Unknown skill-root command: {sub}", file=sys.stderr)
             return 1
 
     elif cmd == "rules":
