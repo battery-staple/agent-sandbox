@@ -215,9 +215,28 @@ def verify_token(req_dict: Dict[str, Any], token: str, secret: str) -> bool:
     return hmac.compare_digest(expected_canonical, token)
 
 
-def resolve_cwd(cwd: Optional[str]) -> str:
-    """Resolve working directory on host, falling back to home if invalid."""
-    return cwd if cwd and os.path.isdir(cwd) else os.path.expanduser("~")
+def resolve_cwd(cwd: Optional[str], prefix: str = "") -> str:
+    """Resolve the host working directory, warning when the requested one is unusable.
+
+    ``cwd`` is the directory reported by the in-container client. If the host cannot
+    see it (for example a container-only worktree path), the command runs in the host
+    home directory instead. That silent mismatch is logged as a warning naming both
+    the in-container directory and the out-of-container working directory.
+    """
+    if cwd and os.path.isdir(cwd):
+        return cwd
+
+    fallback = os.path.expanduser("~")
+    if cwd:
+        tag = f"{prefix} " if prefix else ""
+        logging.warning(
+            "%sIn-container directory '%s' is unavailable on the host; "
+            "using out-of-container working directory '%s'",
+            tag,
+            cwd,
+            fallback,
+        )
+    return fallback
 
 
 COCOA_DIALOG_SCRIPT = """use AppleScript version "2.4"
@@ -525,8 +544,9 @@ class HostExecServer:
                 })
                 return
 
-            # 5. Resolve Effective Working Directory on Host (home fallback if path is absent)
-            effective_cwd = resolve_cwd(raw_cwd)
+            # 5. Resolve Effective Working Directory on Host (home fallback if path is absent,
+            #    warning with both the in-container and out-of-container directory)
+            effective_cwd = resolve_cwd(raw_cwd, prefix)
 
             # 6. Interactive User Approval (Serialized via approval_lock)
             if policy.get("require_interactive_approval", False):
