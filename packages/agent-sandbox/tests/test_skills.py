@@ -312,6 +312,58 @@ class TestSkills(unittest.TestCase):
         self.assertEqual(rejections[0].source_catalog, os.path.abspath(catalog_path))
         self.assertTrue(rejections[0].reason)
 
+    def test_inherits_depth_limit(self):
+        import io
+        from contextlib import redirect_stderr
+        chain_dir = os.path.join(self.temp_dir, "chain")
+        os.makedirs(chain_dir)
+        n = CatalogSkillResolver.MAX_INHERIT_DEPTH + 10
+        files = [os.path.join(chain_dir, f"c{i}.json") for i in range(n)]
+        for i, path in enumerate(files):
+            data = {"entries": [{"path": f"/nonexistent-{i}"}]}
+            if i + 1 < n:
+                data["inherits"] = [files[i + 1]]
+            with open(path, "w") as f:
+                json.dump(data, f)
+        resolver = CatalogSkillResolver()
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            raw = resolver.parse_catalogs([files[0]])
+        self.assertIn("depth", buf.getvalue().lower())
+        # Traversal stops at the depth cap, so the tail entry is never reached.
+        self.assertFalse(any(f"/nonexistent-{n - 1}" in e["path"] for e in raw))
+        self.assertLessEqual(len(raw), CatalogSkillResolver.MAX_INHERIT_DEPTH + 1)
+
+    def test_inherits_symlinked_cycle_terminates(self):
+        a_path = os.path.join(self.temp_dir, "a.json")
+        b_path = os.path.join(self.temp_dir, "b.json")
+        with open(a_path, "w") as f:
+            json.dump({"inherits": [b_path], "entries": []}, f)
+        with open(b_path, "w") as f:
+            json.dump({"inherits": [a_path], "entries": [{"path": "/tail-entry"}]}, f)
+        link_path = os.path.join(self.temp_dir, "link-a.json")
+        os.symlink(a_path, link_path)
+        resolver = CatalogSkillResolver()
+        raw = resolver.parse_catalogs([a_path, link_path])
+        self.assertEqual(len(raw), 1)
+        self.assertEqual(raw[0]["path"], "/tail-entry")
+
+    def test_agent_writable_skill_root_warns(self):
+        import io
+        from contextlib import redirect_stderr
+        ws_dir = os.path.join(self.temp_dir, "workspace")
+        inner_root = os.path.join(ws_dir, "skills-root")
+        os.makedirs(inner_root)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            resolver = CatalogSkillResolver(
+                allowed_workspaces=[ws_dir], allowed_skill_roots=[inner_root]
+            )
+        self.assertIn("agent-writable", buf.getvalue())
+        self.assertIn(inner_root, buf.getvalue())
+        # Resolver still works and does not crash.
+        self.assertIn(os.path.abspath(inner_root), resolver.allowed_skill_roots)
+
 
 if __name__ == "__main__":
     unittest.main()
