@@ -138,6 +138,8 @@ agent-sandbox rules
 agent-sandbox skills
 ```
 
+**Skill trust model**: workspaces are agent-writable, so catalog entries that resolve inside a workspace are never mounted from there. Shared skills belong in `~/.agent-sandbox/common/skills/` or `~/.agent-sandbox/<engine>/skills/`, which are always trusted. External host directories must be allowlisted with `agent-sandbox skill-root add <dir>` (stored as `allowed_skill_roots` in `~/.agent-sandbox/whitelist.yaml`); anything else is ignored — run `agent-sandbox skills` to see rejections and how to allow them.
+
 ### 4. Browser Subagent & Dual-Mode Execution
 Automated browser requests (Playwright, Puppeteer, CDP) are handled transparently by an integrated container browser dispatcher (`google-chrome`, `chromium`):
 - **Host Interactive Mode**: When `agent-sandbox host-bridge` is active, browser requests drive native Google Chrome visibly on the macOS desktop via `host-exec chrome` and transparent loopback CDP forwarding.
@@ -159,6 +161,9 @@ Automated browser requests (Playwright, Puppeteer, CDP) are handled transparentl
 | `agent-sandbox workspace add [path]` | Whitelist a workspace directory (current directory if omitted). |
 | `agent-sandbox workspace remove <path>` | Remove a workspace from the whitelist. |
 | `agent-sandbox workspace list` | List all whitelisted workspaces. |
+| `agent-sandbox skill-root add [path]` | Allow catalog skills under a host directory (current directory if omitted). |
+| `agent-sandbox skill-root remove <path>` | Remove a directory from allowed skill roots. |
+| `agent-sandbox skill-root list` | List allowed skill roots. |
 | `agent-sandbox rules [engine]` | Display compiled rules hierarchy and sources. |
 | `agent-sandbox skills [engine]` | Display discovered directory and catalog skills. |
 | `agent-sandbox open [subpath]` | Open `~/.agent-sandbox/` directory in macOS Finder. |

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Sequence
 import yaml
@@ -70,6 +71,8 @@ def generate_compose_override(
     )
 
     out_path = os.path.abspath(os.path.expanduser(override_file)) if override_file else None
+
+    rejected_catalog_skills = 0
 
     services: dict[str, dict] = {}
     volumes_top: dict[str, dict] = {}
@@ -148,7 +151,10 @@ def generate_compose_override(
                 volumes.append(f"{s_host_path}:{s_container_path}:ro")
 
         # 4. Catalog skills (skills.json discovered paths outside workspaces)
-        catalog_skills = catalog_skill_resolver.resolve_for_engine(engine, warn=False)
+        catalog_skills, catalog_rejections = catalog_skill_resolver.resolve_with_rejections(
+            engine, warn=False
+        )
+        rejected_catalog_skills += len(catalog_rejections)
         for c_path in sorted(catalog_skills):
             volumes.append(f"{c_path}:{c_path}:ro")
 
@@ -166,6 +172,13 @@ def generate_compose_override(
     for engine in active_engines:
         vname = f"agent_home_{engine.name}"
         volumes_top[vname] = {"name": vname}
+
+    if rejected_catalog_skills:
+        print(
+            f"[Sandbox Warning] {rejected_catalog_skills} catalog skill(s) ignored; "
+            f"run 'agent-sandbox skills' for details.",
+            file=sys.stderr,
+        )
 
     override_data = {"services": services}
     if volumes_top:
