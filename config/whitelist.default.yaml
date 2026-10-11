@@ -1,5 +1,11 @@
 allowed_workspaces: []
 
+# Host directories outside the whitelisted workspaces from which JSON skill
+# catalogs (skills.json) may bind-mount skills read-only. Empty means deny:
+# catalog entries pointing outside a workspace are ignored. These paths are
+# read from the host-only whitelist, never from agent-writable content.
+allowed_skill_roots: []
+
 allowed_commands:
   xcodebuild:
     binary_path: /usr/bin/xcodebuild

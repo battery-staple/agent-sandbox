@@ -81,6 +81,15 @@ def load_engine_manifest(manifest_path: str, expected_dir_name: str | None = Non
     )
 
 
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    """Coerces a YAML list-or-scalar into a tuple of strings."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
+
+
 def load_sandbox_config(config_path: str) -> SandboxConfig:
     """Loads and validates SandboxConfig from YAML file."""
     norm_path = os.path.abspath(config_path)
@@ -93,12 +102,14 @@ def load_sandbox_config(config_path: str) -> SandboxConfig:
     if not isinstance(data, dict):
         return SandboxConfig()
 
-    allowed_workspaces = tuple(data.get("allowed_workspaces") or ())
+    allowed_workspaces = _string_tuple(data.get("allowed_workspaces"))
     allowed_commands = data.get("allowed_commands") or {}
+    allowed_skill_roots = _string_tuple(data.get("allowed_skill_roots"))
 
     return SandboxConfig(
         allowed_workspaces=allowed_workspaces,
         allowed_commands=allowed_commands,
+        allowed_skill_roots=allowed_skill_roots,
     )
 
 
@@ -110,6 +121,7 @@ def save_sandbox_config(config: SandboxConfig, config_path: str) -> None:
     data = {
         "allowed_workspaces": list(config.allowed_workspaces),
         "allowed_commands": config.allowed_commands,
+        "allowed_skill_roots": list(config.allowed_skill_roots),
     }
 
     with open(norm_path, "w", encoding="utf-8") as f:

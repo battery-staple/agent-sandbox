@@ -11,12 +11,57 @@ from ..config.models import EngineManifest
 class CatalogSkillResolver:
     """Discovers and resolves skill directories declared in JSON skill catalogs."""
 
-    def __init__(self, allowed_workspaces: Sequence[str] | None = None) -> None:
+    def __init__(
+        self,
+        allowed_workspaces: Sequence[str] | None = None,
+        allowed_skill_roots: Sequence[str] | None = None,
+        sandbox_dir: str | None = None,
+    ) -> None:
         self.allowed_workspaces = [
             os.path.abspath(os.path.expanduser(w))
             for w in (allowed_workspaces or ())
             if w and os.path.isdir(os.path.abspath(os.path.expanduser(w)))
         ]
+        # Host-only, agent-inaccessible roots. The sandbox dir itself is not
+        # trusted wholesale (it also holds logs, IPC secrets, and config); only
+        # its skills subtrees are added, per engine, in resolve_for_engine.
+        self.sandbox_dir = os.path.abspath(os.path.expanduser(sandbox_dir)) if sandbox_dir else None
+        self.allowed_skill_roots = [
+            os.path.abspath(os.path.expanduser(r))
+            for r in (allowed_skill_roots or ())
+            if r and os.path.isdir(os.path.abspath(os.path.expanduser(r)))
+        ]
+
+    def _roots_for_engine(self, engine: EngineManifest) -> list[str]:
+        """Explicit allowed roots plus the engine's host-only skill directories."""
+        roots = list(self.allowed_skill_roots)
+        if self.sandbox_dir:
+            for sub in ("common", engine.name):
+                candidate = os.path.join(self.sandbox_dir, sub, "skills")
+                if os.path.isdir(candidate):
+                    roots.append(candidate)
+        return roots
+
+    @staticmethod
+    def _allowed_realpath(path: str, roots: Sequence[str]) -> str | None:
+        """Returns path's canonical location if it is inside a host-only root.
+
+        Only roots the sandboxed agent cannot write to are considered: whitelisted
+        workspaces are deliberately excluded because they are agent-writable, so a
+        symlink swap could redirect a mount after validation. The single
+        ``realpath`` resolution is returned directly (never recomputed) so the
+        validated path is exactly the path that gets mounted. Returns None when
+        the path escapes every root or cannot be resolved.
+        """
+        try:
+            real_path = os.path.realpath(path)
+        except OSError:
+            return None
+        for root in roots:
+            real_root = os.path.realpath(root)
+            if real_path == real_root or real_path.startswith(real_root.rstrip(os.sep) + os.sep):
+                return real_path
+        return None
 
     def find_catalog_files(self, engine: EngineManifest) -> list[str]:
         """Locates catalog files declared by the engine and present in workspaces."""
@@ -162,9 +207,36 @@ class CatalogSkillResolver:
 
         return final_skills
 
+    def filter_allowed_roots(self, skill_paths: Sequence[str], roots: Sequence[str]) -> list[str]:
+        """Restricts catalog skills to host-only roots and returns canonical paths.
+
+        Catalog files can live in agent-writable locations, so a resolved path is
+        only mounted when its real (symlink-resolved) location falls inside a root
+        the agent cannot write to. The canonical path from that single resolution
+        is what gets mounted, so a symlink swapped between validation and
+        ``docker compose up`` cannot redirect the bind mount. Rejections are always
+        reported because they indicate either misconfiguration or an escape attempt.
+        """
+        allowed: list[str] = []
+        seen: set[str] = set()
+        for path in skill_paths:
+            canonical = self._allowed_realpath(path, roots)
+            if canonical is None:
+                print(
+                    f"[Sandbox Warning] Refusing to mount catalog skill outside allowed roots: "
+                    f"{path}. Add its directory to 'allowed_skill_roots' in whitelist.yaml to permit it.",
+                    file=sys.stderr,
+                )
+                continue
+            if canonical not in seen:
+                seen.add(canonical)
+                allowed.append(canonical)
+        return sorted(allowed)
+
     def resolve_for_engine(self, engine: EngineManifest, warn: bool = True) -> list[str]:
         """Runs the complete catalog discovery and resolution pipeline for an engine."""
         catalog_files = self.find_catalog_files(engine)
         raw_entries = self.parse_catalogs(catalog_files)
         valid_paths = self.resolve_and_validate_paths(raw_entries, warn=warn)
-        return self.filter_conflicts(valid_paths)
+        uncovered = self.filter_conflicts(valid_paths)
+        return self.filter_allowed_roots(uncovered, self._roots_for_engine(engine))
