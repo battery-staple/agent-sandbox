@@ -22,7 +22,7 @@ from agent_sandbox.config.models import (
 
 class TestGenerator(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix="test_generator_")
+        self.temp_dir = os.path.realpath(tempfile.mkdtemp(prefix="test_generator_"))
         self.fs_root = Path(self.temp_dir) / "fake_home"
         self.fs_root.mkdir(parents=True, exist_ok=True)
         self.repo_root = os.path.join(self.temp_dir, "repo")
