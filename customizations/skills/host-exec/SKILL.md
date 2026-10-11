@@ -52,7 +52,10 @@ host-exec open -a Simulator
    - The host daemon dynamically reads security policies from `~/.agent-sandbox/whitelist.yaml` on the host machine.
    - Any modifications made by the user to the whitelist file take effect immediately without restarting daemons or containers.
 2. **Path Translation**:
-   - When you execute `host-exec` from a whitelisted workspace directory, the host bridge automatically matches the container path with the host filesystem path.
+   - The host command runs in the host directory that matches your current container directory, so host tools see the same project files.
+   - Workspaces mounted at the same path on both sides (for example `/Users/...`) are used as-is.
+   - Otherwise a directory under the container home `/home/developer` is mapped onto the host home directory: `/home/developer/project` runs in `~/project`.
+   - If no matching host directory exists, the command falls back to the host home directory, and the daemon logs a warning naming both directories.
 3. **HMAC-SHA256 Authentication**:
    - `host-exec` signs every request with a secret token shared between the host daemon and the container.
 4. **Interactive User Approval**:

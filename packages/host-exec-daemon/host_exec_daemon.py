@@ -27,6 +27,10 @@ LOGS_DIR = os.path.join(STATE_DIR, "logs")
 PID_FILE_PATH = os.path.join(IPC_DIR, "host-bridge.pid")
 AUTH_SECRET_PATH = os.path.join(IPC_DIR, "auth_secret.key")
 WHITELIST_PATH = os.path.join(STATE_DIR, "whitelist.yaml")
+# The developer's home directory inside the sandbox container. The client reports
+# paths under this root, so the daemon translates them onto the host home
+# directory (for example ``/home/developer/xyz`` -> ``~/xyz``).
+CONTAINER_HOME = os.environ.get("HOST_EXEC_CONTAINER_HOME", "/home/developer")
 HOST_EXEC_BIND = os.environ.get("HOST_EXEC_BIND", "0.0.0.0")
 HOST_EXEC_PORT: Optional[int] = None
 MAX_CONCURRENT_HOST_PROCESSES = int(os.environ.get("MAX_CONCURRENT_HOST_PROCESSES", "16"))
@@ -215,18 +219,83 @@ def verify_token(req_dict: Dict[str, Any], token: str, secret: str) -> bool:
     return hmac.compare_digest(expected_canonical, token)
 
 
-def resolve_cwd(cwd: Optional[str], prefix: str = "") -> str:
-    """Resolve the host working directory, warning when the requested one is unusable.
+def translate_container_path(
+    path: Optional[str],
+    container_home: Optional[str] = None,
+    host_home: Optional[str] = None,
+) -> Optional[str]:
+    """Map a path inside the container home onto the equivalent host path.
 
-    ``cwd`` is the directory reported by the in-container client. If the host cannot
-    see it (for example a container-only worktree path), the command runs in the host
-    home directory instead. That silent mismatch is logged as a warning naming both
-    the in-container directory and the out-of-container working directory.
+    Inside the sandbox the developer's home is ``/home/developer``, while on the
+    host it is the platform user's home directory. A container path such as
+    ``/home/developer/project`` therefore corresponds to ``~/project`` on the
+    host.
+
+    Returns the translated path, or ``None`` when ``path`` does not live inside
+    the container home directory, or when the translation would escape the host
+    home directory. Such paths need no translation.
     """
-    if cwd and os.path.isdir(cwd):
+    if not isinstance(path, str) or not path:
+        return None
+
+    container_root = (container_home or CONTAINER_HOME).rstrip("/") or "/"
+    host_root = (host_home or os.path.expanduser("~")).rstrip("/") or "/"
+
+    if path == container_root:
+        return host_root
+
+    prefix = "/" if container_root == "/" else container_root + "/"
+    if not path.startswith(prefix):
+        return None
+
+    translated = os.path.normpath(os.path.join(host_root, path[len(prefix):]))
+    # Confine the result to the host home directory. A crafted path such as
+    # ``/home/developer/../etc`` or a doubled slash must not escape it.
+    if (
+        host_root != "/"
+        and translated != host_root
+        and not translated.startswith(host_root + os.sep)
+    ):
+        return None
+    return translated
+
+
+def resolve_cwd(
+    cwd: Optional[str],
+    prefix: str = "",
+    container_home: Optional[str] = None,
+    host_home: Optional[str] = None,
+) -> str:
+    """Resolve the host working directory for an in-container request.
+
+    ``cwd`` is the directory reported by the in-container client. It is used
+    verbatim when the host can already see it, for example a workspace mounted at
+    the same path. Otherwise a path under the container home is translated onto
+    the host home directory (``/home/developer/xyz`` -> ``~/xyz``).
+
+    When neither the requested directory nor its translation is usable on the
+    host (for example a container-only worktree path), the command runs in the
+    host home directory instead. That silent mismatch is logged as a warning
+    naming both the in-container directory and the out-of-container working
+    directory.
+    """
+    resolved_host_home = host_home or os.path.expanduser("~")
+
+    if isinstance(cwd, str) and cwd and os.path.isdir(cwd):
         return cwd
 
-    fallback = os.path.expanduser("~")
+    if cwd:
+        translated = translate_container_path(cwd, container_home, resolved_host_home)
+        if translated and os.path.isdir(translated):
+            tag = f"{prefix} " if prefix else ""
+            logging.info(
+                "%sIn-container directory '%s' translated to host directory '%s'",
+                tag,
+                cwd,
+                translated,
+            )
+            return translated
+
     if cwd:
         tag = f"{prefix} " if prefix else ""
         logging.warning(
@@ -234,9 +303,9 @@ def resolve_cwd(cwd: Optional[str], prefix: str = "") -> str:
             "using out-of-container working directory '%s'",
             tag,
             cwd,
-            fallback,
+            resolved_host_home,
         )
-    return fallback
+    return resolved_host_home
 
 
 COCOA_DIALOG_SCRIPT = """use AppleScript version "2.4"

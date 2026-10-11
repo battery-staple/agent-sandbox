@@ -110,7 +110,7 @@ agent-sandbox ui antigravity
 ### 1. Host-Exec Bridge (macOS Host Utilities)
 Because the sandbox container runs Linux, macOS-native binaries (such as `xcodebuild`, iOS Simulator utilities, or system dialogs) cannot run directly inside the container. The Host-Exec bridge provides a secure, audited gateway for the agent to execute specific host binaries on the macOS host.
 
-Security is enforced through a strict whitelist policy defined in `~/.agent-sandbox/whitelist.yaml`. Inside the container, the agent invokes allowed utilities transparently using `host-exec <command>` and can inspect active permissions with `host-exec --list`.
+Security is enforced through a strict whitelist policy defined in `~/.agent-sandbox/whitelist.yaml`. Inside the container, the agent invokes allowed utilities transparently using `host-exec <command>` and can inspect active permissions with `host-exec --list`. The bridge runs each command in the host directory matching the container's working directory, translating paths under the container home `/home/developer` onto the host home directory (`/home/developer/project` -> `~/project`).
 
 ### 2. Pre-Installed Toolchains & State Persistence
 System compilers and base tools are declared in [`Dockerfile.sandbox`](file:///Users/rohengiralt/Documents/Code/LLM/antigravity-container/Dockerfile.sandbox):

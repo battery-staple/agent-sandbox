@@ -27,11 +27,16 @@ from host_exec_daemon import (
     main,
     prompt_user_approval_async,
     resolve_cwd,
+    translate_container_path,
     verify_token,
 )
 
 
 class TestResolveCwd(unittest.TestCase):
+    # A container home root that does not exist on the test machine, so the
+    # translation path is always the one being exercised.
+    FAKE_CONTAINER_HOME = "/container-home-for-tests"
+
     def test_resolve_valid_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             self.assertEqual(resolve_cwd(tmpdir), tmpdir)
@@ -60,6 +65,162 @@ class TestResolveCwd(unittest.TestCase):
         with self.assertNoLogs(level="WARNING"):
             self.assertEqual(resolve_cwd(None), os.path.expanduser("~"))
             self.assertEqual(resolve_cwd(""), os.path.expanduser("~"))
+
+    def test_translates_container_home_path_to_host_home(self):
+        # A container-only path (invisible to the host) is mapped from the
+        # container home root onto the host home root, keeping the suffix.
+        with tempfile.TemporaryDirectory() as host_home:
+            expected = os.path.join(host_home, "project", "src")
+            os.makedirs(expected)
+
+            self.assertEqual(
+                resolve_cwd(
+                    f"{self.FAKE_CONTAINER_HOME}/project/src",
+                    container_home=self.FAKE_CONTAINER_HOME,
+                    host_home=host_home,
+                ),
+                expected,
+            )
+
+    def test_translates_container_home_root_to_host_home(self):
+        with tempfile.TemporaryDirectory() as host_home:
+            # No warning: the root itself was successfully translated rather
+            # than falling back to the home directory.
+            with self.assertNoLogs(level="WARNING"):
+                self.assertEqual(
+                    resolve_cwd(
+                        self.FAKE_CONTAINER_HOME,
+                        container_home=self.FAKE_CONTAINER_HOME,
+                        host_home=host_home,
+                    ),
+                    host_home,
+                )
+
+    def test_translation_normalizes_trailing_slash(self):
+        with tempfile.TemporaryDirectory() as host_home:
+            expected = os.path.join(host_home, "project")
+            os.makedirs(expected)
+            self.assertEqual(
+                resolve_cwd(
+                    f"{self.FAKE_CONTAINER_HOME}/project/",
+                    container_home=self.FAKE_CONTAINER_HOME,
+                    host_home=host_home,
+                ),
+                expected,
+            )
+
+    def test_translation_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as host_home:
+            os.makedirs(os.path.join(host_home, "project"))
+            with self.assertNoLogs(level="WARNING"):
+                resolve_cwd(
+                    f"{self.FAKE_CONTAINER_HOME}/project",
+                    container_home=self.FAKE_CONTAINER_HOME,
+                    host_home=host_home,
+                )
+
+    def test_translation_falls_back_to_home_when_host_path_missing(self):
+        # When the translated host path does not exist either, keep the old
+        # behaviour of running in the host home directory.
+        container_cwd = f"{self.FAKE_CONTAINER_HOME}/does-not-exist"
+        with tempfile.TemporaryDirectory() as host_home:
+            with self.assertLogs(level="WARNING") as cm:
+                self.assertEqual(
+                    resolve_cwd(
+                        container_cwd,
+                        container_home=self.FAKE_CONTAINER_HOME,
+                        host_home=host_home,
+                    ),
+                    host_home,
+                )
+            output = "\n".join(cm.output)
+            self.assertIn(container_cwd, output)
+            self.assertIn(host_home, output)
+
+    def test_literal_path_wins_over_translation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            container_home = os.path.join(tmpdir, "home", "developer")
+            literal = os.path.join(container_home, "project")
+            host_home = os.path.join(tmpdir, "host")
+            os.makedirs(literal)
+            os.makedirs(host_home)
+
+            self.assertEqual(
+                resolve_cwd(literal, container_home=container_home, host_home=host_home),
+                literal,
+            )
+
+
+class TestTranslateContainerPath(unittest.TestCase):
+    def test_translates_nested_path(self):
+        self.assertEqual(
+            translate_container_path(
+                "/home/developer/a/b", container_home="/home/developer", host_home="/host"
+            ),
+            os.path.join("/host", "a", "b"),
+        )
+
+    def test_translates_home_root(self):
+        self.assertEqual(
+            translate_container_path(
+                "/home/developer", container_home="/home/developer", host_home="/host"
+            ),
+            "/host",
+        )
+
+    def test_ignores_sibling_prefix(self):
+        # /home/developerfoo must not be treated as living inside /home/developer.
+        self.assertIsNone(
+            translate_container_path(
+                "/home/developerfoo/x", container_home="/home/developer", host_home="/host"
+            )
+        )
+
+    def test_ignores_paths_outside_container_home(self):
+        self.assertIsNone(
+            translate_container_path(
+                "/Users/me/project", container_home="/home/developer", host_home="/host"
+            )
+        )
+
+    def test_none_or_empty_returns_none(self):
+        self.assertIsNone(translate_container_path(None))
+        self.assertIsNone(translate_container_path(""))
+
+    def test_non_string_returns_none(self):
+        self.assertIsNone(translate_container_path(123, host_home="/host"))
+        self.assertIsNone(translate_container_path(["/home/developer/x"], host_home="/host"))
+
+    def test_normalizes_dotted_segments(self):
+        self.assertEqual(
+            translate_container_path(
+                "/home/developer/./a/../b", container_home="/home/developer", host_home="/host"
+            ),
+            os.path.join("/host", "b"),
+        )
+
+    def test_rejects_parent_traversal_escape(self):
+        # A crafted container path must not escape the host home directory.
+        self.assertIsNone(
+            translate_container_path(
+                "/home/developer/../etc/passwd",
+                container_home="/home/developer",
+                host_home="/host",
+            )
+        )
+
+    def test_rejects_doubled_slash_escape(self):
+        self.assertIsNone(
+            translate_container_path(
+                "/home/developer//etc", container_home="/home/developer", host_home="/host"
+            )
+        )
+
+    def test_container_home_root_maps_onto_host_root(self):
+        self.assertEqual(
+            translate_container_path("/a/b", container_home="/", host_home="/host"),
+            os.path.join("/host", "a", "b"),
+        )
 
 
 class TestVerifyToken(unittest.TestCase):
