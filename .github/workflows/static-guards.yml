@@ -1,0 +1,19 @@
+name: Static Guards
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  untrusted-mounts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check catalog-derived bind-mount sources are containment-guarded
+        run: python tools/check_untrusted_mounts.py
