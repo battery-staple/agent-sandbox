@@ -292,13 +292,24 @@ end run
 
 
 async def prompt_user_approval_async(
-    command_name: str, args: List[str], req_id: str = "", traj_id: str = "", cwd: str = ""
+    command_name: str,
+    args: List[str],
+    req_id: str = "",
+    traj_id: str = "",
+    cwd: str = "",
+    container_cwd: str = "",
 ) -> bool:
-    """Prompt user for confirmation via native macOS dialog, showing the effective working directory."""
+    """Prompt user for confirmation, showing both working directories.
+
+    ``container_cwd`` is the directory the client reported inside the container;
+    ``cwd`` is the effective directory on the host where the command will run.
+    """
     cmd_display = shlex.join([command_name] + args) if isinstance(args, list) else f"{command_name} {args}"
     context_lines = []
+    if container_cwd:
+        context_lines.append(f"In-Container Directory: {container_cwd}")
     if cwd:
-        context_lines.append(f"Working Directory: {cwd}")
+        context_lines.append(f"Out-of-Container Working Directory: {cwd}")
     if traj_id:
         context_lines.append(f"Trajectory: {traj_id}")
     if req_id:
@@ -554,7 +565,12 @@ class HostExecServer:
                 async with self.approval_lock:
                     logging.info("%s Displaying approval dialog on macOS...", prefix)
                     approved = await prompt_user_approval_async(
-                        command_name, args, req_id, traj_id, cwd=effective_cwd
+                        command_name,
+                        args,
+                        req_id,
+                        traj_id,
+                        cwd=effective_cwd,
+                        container_cwd=raw_cwd or "",
                     )
 
                 if not approved:

@@ -221,6 +221,27 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Request: req-123", prompt_arg)
 
     @patch("asyncio.create_subprocess_exec")
+    async def test_prompt_reports_both_working_directories(self, mock_exec):
+        # The dialog must name both the in-container directory and the effective
+        # out-of-container working directory so the user can see the mapping.
+        proc_mock = AsyncMock()
+        proc_mock.communicate.return_value = (b"Approve\n", b"")
+        proc_mock.returncode = 0
+        mock_exec.return_value = proc_mock
+
+        res = await prompt_user_approval_async(
+            "git",
+            ["push", "origin", "main"],
+            cwd="/Users/example/project",
+            container_cwd="/home/developer/project",
+        )
+        self.assertTrue(res)
+
+        prompt_arg = mock_exec.call_args[0][4]
+        self.assertIn("In-Container Directory: /home/developer/project", prompt_arg)
+        self.assertIn("Out-of-Container Working Directory: /Users/example/project", prompt_arg)
+
+    @patch("asyncio.create_subprocess_exec")
     async def test_prompt_omits_working_directory_when_unknown(self, mock_exec):
         proc_mock = AsyncMock()
         proc_mock.communicate.return_value = (b"Approve\n", b"")
