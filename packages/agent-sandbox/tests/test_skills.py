@@ -17,7 +17,7 @@ from agent_sandbox.skills.directory import DirectorySkillResolver
 
 class TestSkills(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix="test_skills_")
+        self.temp_dir = os.path.realpath(tempfile.mkdtemp(prefix="test_skills_"))
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -165,7 +165,7 @@ class TestSkills(unittest.TestCase):
         self.assertNotIn(os.path.abspath(logs), resolved)
 
     def test_catalog_resolver_canonicalizes_and_rejects_symlinks(self):
-        """Symlinks cannot redirect a mount away from a trusted root (TOCTOU)."""
+        """Symlink entries resolve to canonical paths; a swapped link cannot redirect the mount."""
         ws_dir = os.path.join(self.temp_dir, "workspace")
         os.makedirs(ws_dir)
 
@@ -202,6 +202,44 @@ class TestSkills(unittest.TestCase):
         self.assertEqual(resolved, [os.path.realpath(trusted_skill)])
         self.assertNotIn(os.path.abspath(link_to_trusted), resolved)
         self.assertNotIn(os.path.abspath(link_to_sensitive), resolved)
+
+        # Repoint the good link at the sensitive dir after validation.
+        os.remove(link_to_trusted)
+        os.symlink(sensitive, link_to_trusted)
+        resolved_again = resolver.resolve_for_engine(engine, warn=False)
+        self.assertEqual(resolved_again, [])
+        # The previously returned path still points inside the trusted root.
+        self.assertTrue(resolved[0].startswith(os.path.realpath(trusted) + os.sep))
+        self.assertTrue(os.path.isdir(resolved[0]))
+
+    def test_catalog_resolver_rejects_symlink_inside_root_pointing_outside(self):
+        """A symlink inside a trusted root that points outside the root is rejected."""
+        ws_dir = os.path.join(self.temp_dir, "workspace")
+        os.makedirs(ws_dir)
+
+        trusted = os.path.join(self.temp_dir, "trusted")
+        os.makedirs(trusted)
+
+        outside = os.path.join(self.temp_dir, "outside")
+        os.makedirs(outside)
+
+        inner_link = os.path.join(trusted, "inner")
+        os.symlink(outside, inner_link)
+
+        catalog_path = os.path.join(ws_dir, "skills.json")
+        with open(catalog_path, "w") as f:
+            json.dump({"entries": [{"path": inner_link}]}, f)
+
+        engine = EngineManifest(
+            name="test",
+            port=1234,
+            web_url="http://localhost",
+            skills=EngineSkillConfig(target_dir="skills", catalogs=("skills.json",)),
+        )
+
+        resolver = CatalogSkillResolver(allowed_workspaces=[ws_dir], allowed_skill_roots=[trusted])
+        resolved = resolver.resolve_for_engine(engine, warn=False)
+        self.assertEqual(resolved, [])
 
 
 if __name__ == "__main__":
