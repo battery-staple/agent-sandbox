@@ -124,6 +124,9 @@ def generate_compose_override(
         ]
 
         # 1. Engine config mounts
+        # Trust assumption: engine manifests and the repo root are host-only
+        # trusted input. Do not make the repo agent-writable: engine.mounts
+        # host paths are mounted verbatim and would become an injection vector.
         for m in engine.mounts:
             host_m = _resolve_host_path(Path(m), fs_root)
             container_m = _to_container_path(m)

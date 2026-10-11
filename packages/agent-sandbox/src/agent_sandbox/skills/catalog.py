@@ -27,6 +27,10 @@ class CatalogRejection:
 class CatalogSkillResolver:
     """Discovers and resolves skill directories declared in JSON skill catalogs."""
 
+    # Bound on inherits-chain depth and total files parsed per resolve.
+    MAX_INHERIT_DEPTH = 32
+    MAX_CATALOG_FILES = 256
+
     def __init__(
         self,
         allowed_workspaces: Sequence[str] | None = None,
@@ -48,6 +52,20 @@ class CatalogSkillResolver:
             if r and os.path.isdir(os.path.abspath(os.path.expanduser(r)))
         ]
         self.last_rejections: list[CatalogRejection] = []
+        self._warn_agent_writable_roots()
+
+    def _warn_agent_writable_roots(self) -> None:
+        # A skill root inside an agent-writable workspace is not a real
+        # boundary: the agent could swap symlinks there after validation.
+        for root in self.allowed_skill_roots:
+            for ws in self.allowed_workspaces:
+                if _is_within(os.path.realpath(root), os.path.realpath(ws)):
+                    print(
+                        f"[Sandbox Warning] allowed_skill_roots entry {root} is inside "
+                        f"agent-writable workspace {ws}; containment there is not a real boundary.",
+                        file=sys.stderr,
+                    )
+                    break
 
     def _roots_for_engine(self, engine: EngineManifest) -> list[str]:
         """Explicit allowed roots plus the engine's host-only skill directories."""
@@ -115,12 +133,38 @@ class CatalogSkillResolver:
         """Parses JSON catalog files traversing 'inherits' chains with cycle detection."""
         raw_entries: list[dict[str, str]] = []
         visited_files: set[str] = set()
+        warned: set[str] = set()
 
-        def _parse_file(file_path: str) -> None:
-            norm = os.path.abspath(file_path)
-            if norm in visited_files or not os.path.isfile(norm):
+        def _warn_once(key: str, message: str) -> None:
+            if key not in warned:
+                warned.add(key)
+                print(message, file=sys.stderr)
+
+        def _parse_file(file_path: str, depth: int = 0) -> None:
+            if depth > self.MAX_INHERIT_DEPTH:
+                _warn_once(
+                    "depth",
+                    f"[Sandbox Warning] Skill catalog inherits depth exceeds "
+                    f"{self.MAX_INHERIT_DEPTH}, stopping at {file_path}",
+                )
                 return
-            visited_files.add(norm)
+            if len(visited_files) >= self.MAX_CATALOG_FILES:
+                _warn_once(
+                    "count",
+                    f"[Sandbox Warning] Too many skill catalog files "
+                    f"(>{self.MAX_CATALOG_FILES}), stopping traversal.",
+                )
+                return
+            try:
+                canonical = os.path.realpath(file_path)
+            except OSError:
+                return
+            if canonical in visited_files:
+                return
+            if not os.path.isfile(canonical):
+                return
+            visited_files.add(canonical)
+            norm = canonical
 
             try:
                 with open(norm, "r", encoding="utf-8") as f:
@@ -147,7 +191,7 @@ class CatalogSkillResolver:
                             resolved_inherit = inherit_path
                         else:
                             resolved_inherit = os.path.join(base_dir, inherit_path)
-                        _parse_file(resolved_inherit)
+                        _parse_file(resolved_inherit, depth + 1)
 
             # Process 'entries'
             entries = data.get("entries", [])
