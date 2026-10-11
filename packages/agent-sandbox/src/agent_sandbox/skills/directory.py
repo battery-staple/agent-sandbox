@@ -5,6 +5,14 @@ import os
 from typing import Mapping
 
 
+def skill_dirs(sandbox_dir: str, engine_name: str) -> list[str]:
+    """Returns the common and engine-specific skill directories."""
+    return [
+        os.path.join(sandbox_dir, "common", "skills"),
+        os.path.join(sandbox_dir, engine_name, "skills"),
+    ]
+
+
 class DirectorySkillResolver:
     """Discovers skills from filesystem directories (e.g. ~/.agent-sandbox/{common,<engine>}/skills)."""
 
@@ -18,9 +26,7 @@ class DirectorySkillResolver:
         Returns a dict mapping skill_name -> host_absolute_path.
         """
         discovered: dict[str, str] = {}
-
-        common_dir = os.path.join(self.sandbox_dir, "common", "skills")
-        engine_dir = os.path.join(self.sandbox_dir, engine_name, "skills")
+        common_dir, engine_dir = skill_dirs(self.sandbox_dir, engine_name)
 
         # 1. Common skills
         if os.path.isdir(common_dir):

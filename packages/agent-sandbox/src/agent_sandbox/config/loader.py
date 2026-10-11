@@ -87,7 +87,9 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
         return ()
     if isinstance(value, str):
         return (value,)
-    return tuple(value)
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    raise ValueError(f"Expected a string or list of strings, got {type(value).__name__}: {value!r}")
 
 
 def load_sandbox_config(config_path: str) -> SandboxConfig:

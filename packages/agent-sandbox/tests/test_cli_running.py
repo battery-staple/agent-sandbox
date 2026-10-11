@@ -11,7 +11,7 @@ if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
 from agent_sandbox.cli import SandboxCLI, main
-from agent_sandbox.config.models import EngineManifest
+from agent_sandbox.config.models import EngineManifest, SandboxConfig
 
 
 def _cli_with_engines(tmpdir: str) -> SandboxCLI:
@@ -208,6 +208,52 @@ class TestHostBridgeCLI(unittest.TestCase):
             code = main(["host-bridge", "fg"])
         self.assertEqual(code, 1)
         self.assertFalse(mock_run.called)
+
+
+class TestWorkspaceConfigPreservation(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="test_cli_ws_")
+
+    def test_add_preserves_skill_roots(self):
+        cli = _cli_with_engines(self.tmpdir)
+        existing = os.path.join(self.tmpdir, "existing")
+        new_ws = os.path.join(self.tmpdir, "proj")
+        os.makedirs(existing)
+        os.makedirs(new_ws)
+        cfg = SandboxConfig(
+            allowed_workspaces=(existing,),
+            allowed_commands={},
+            allowed_skill_roots=("/tmp/skills",),
+        )
+        with (
+            mock.patch.object(cli, "ensure_scaffolding", return_value=cfg),
+            mock.patch.object(cli, "get_running_engines", return_value=()),
+            mock.patch("agent_sandbox.cli.save_sandbox_config") as mock_save,
+        ):
+            self.assertEqual(cli.cmd_workspace_add(new_ws), 0)
+        saved = mock_save.call_args[0][0]
+        self.assertEqual(saved.allowed_skill_roots, ("/tmp/skills",))
+        self.assertIn(os.path.abspath(new_ws), saved.allowed_workspaces)
+        self.assertIn(existing, saved.allowed_workspaces)
+
+    def test_remove_preserves_skill_roots(self):
+        cli = _cli_with_engines(self.tmpdir)
+        ws = os.path.join(self.tmpdir, "proj")
+        os.makedirs(ws)
+        cfg = SandboxConfig(
+            allowed_workspaces=(ws,),
+            allowed_commands={},
+            allowed_skill_roots=("/tmp/skills",),
+        )
+        with (
+            mock.patch.object(cli, "ensure_scaffolding", return_value=cfg),
+            mock.patch.object(cli, "get_running_engines", return_value=()),
+            mock.patch("agent_sandbox.cli.save_sandbox_config") as mock_save,
+        ):
+            self.assertEqual(cli.cmd_workspace_remove(ws), 0)
+        saved = mock_save.call_args[0][0]
+        self.assertEqual(saved.allowed_skill_roots, ("/tmp/skills",))
+        self.assertEqual(saved.allowed_workspaces, ())
 
 
 if __name__ == "__main__":

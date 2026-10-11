@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from .config.loader import load_sandbox_config, save_sandbox_config
@@ -535,11 +536,7 @@ class SandboxCLI:
             return 0
 
         curr_workspaces.append(target)
-        new_config = SandboxConfig(
-            allowed_workspaces=tuple(curr_workspaces),
-            allowed_commands=config.allowed_commands,
-            allowed_skill_roots=config.allowed_skill_roots,
-        )
+        new_config = replace(config, allowed_workspaces=tuple(curr_workspaces))
         save_sandbox_config(new_config, self.config_file)
         print(f"[Sandbox] Successfully whitelisted workspace: {target}")
 
@@ -558,11 +555,7 @@ class SandboxCLI:
             return 0
 
         curr_workspaces.remove(target)
-        new_config = SandboxConfig(
-            allowed_workspaces=tuple(curr_workspaces),
-            allowed_commands=config.allowed_commands,
-            allowed_skill_roots=config.allowed_skill_roots,
-        )
+        new_config = replace(config, allowed_workspaces=tuple(curr_workspaces))
         save_sandbox_config(new_config, self.config_file)
         print(f"[Sandbox] Removed workspace: {target}")
 
