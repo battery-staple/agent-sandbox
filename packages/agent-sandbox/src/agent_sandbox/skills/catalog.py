@@ -6,6 +6,14 @@ import os
 import sys
 from typing import Sequence
 from ..config.models import EngineManifest
+from .directory import skill_dirs
+
+
+def _is_within(path: str, ancestor: str) -> bool:
+    """True when path equals ancestor or lies under it."""
+    if path == ancestor:
+        return True
+    return path.startswith(ancestor.rstrip(os.sep) + os.sep)
 
 
 class CatalogSkillResolver:
@@ -36,30 +44,25 @@ class CatalogSkillResolver:
         """Explicit allowed roots plus the engine's host-only skill directories."""
         roots = list(self.allowed_skill_roots)
         if self.sandbox_dir:
-            for sub in ("common", engine.name):
-                candidate = os.path.join(self.sandbox_dir, sub, "skills")
+            for candidate in skill_dirs(self.sandbox_dir, engine.name):
                 if os.path.isdir(candidate):
                     roots.append(candidate)
         return roots
 
     @staticmethod
-    def _allowed_realpath(path: str, roots: Sequence[str]) -> str | None:
+    def _allowed_realpath(path: str, canonical_roots: Sequence[str]) -> str | None:
         """Returns path's canonical location if it is inside a host-only root.
 
         Only roots the sandboxed agent cannot write to are considered: whitelisted
         workspaces are deliberately excluded because they are agent-writable, so a
-        symlink swap could redirect a mount after validation. The single
-        ``realpath`` resolution is returned directly (never recomputed) so the
-        validated path is exactly the path that gets mounted. Returns None when
-        the path escapes every root or cannot be resolved.
+        symlink swap could redirect a mount after validation. ``canonical_roots``
+        must already be realpath-resolved. The single ``realpath`` resolution of
+        ``path`` is returned directly (never recomputed) so the validated path is
+        exactly the path that gets mounted. Returns None when it escapes every root.
         """
-        try:
-            real_path = os.path.realpath(path)
-        except OSError:
-            return None
-        for root in roots:
-            real_root = os.path.realpath(root)
-            if real_path == real_root or real_path.startswith(real_root.rstrip(os.sep) + os.sep):
+        real_path = os.path.realpath(path)
+        for root in canonical_roots:
+            if _is_within(real_path, root):
                 return real_path
         return None
 
@@ -188,20 +191,18 @@ class CatalogSkillResolver:
 
     def filter_conflicts(self, skill_paths: Sequence[str]) -> list[str]:
         """Prunes skills covered by workspaces and deduplicates nested skills."""
-        normalized_ws = [w.rstrip("/") for w in self.allowed_workspaces]
-
         # 1. Filter out skills inside an active workspace
         uncovered: list[str] = []
         for s in skill_paths:
-            norm_s = os.path.abspath(s).rstrip("/")
-            if not any(norm_s == w or norm_s.startswith(w + "/") for w in normalized_ws):
+            norm_s = os.path.abspath(s)
+            if not any(_is_within(norm_s, os.path.abspath(w)) for w in self.allowed_workspaces):
                 uncovered.append(norm_s)
 
         # 2. Deduplicate nested skill paths (keep ancestor)
         uncovered.sort(key=lambda p: (len(p.split("/")), p))
         final_skills: list[str] = []
         for s in uncovered:
-            if any(s.startswith(parent + "/") for parent in final_skills):
+            if any(_is_within(s, parent) and s != parent for parent in final_skills):
                 continue
             final_skills.append(s)
 
@@ -219,8 +220,9 @@ class CatalogSkillResolver:
         """
         allowed: list[str] = []
         seen: set[str] = set()
+        real_roots = [os.path.realpath(r) for r in roots]
         for path in skill_paths:
-            canonical = self._allowed_realpath(path, roots)
+            canonical = self._allowed_realpath(path, real_roots)
             if canonical is None:
                 print(
                     f"[Sandbox Warning] Refusing to mount catalog skill outside allowed roots: "
