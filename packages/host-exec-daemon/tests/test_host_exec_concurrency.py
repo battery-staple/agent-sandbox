@@ -163,7 +163,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         """Verify non-interactive commands run and finish while an interactive approval is pending."""
         approval_gate = asyncio.Event()
 
-        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id="", cwd=""):
+        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
             await approval_gate.wait()
             return True
 
@@ -202,13 +202,15 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         max_simultaneous_prompts = 0
         call_order = []
         received_cwds = []
+        received_container_cwds = []
 
-        async def mock_dialog(cmd_name, args, req_id="", traj_id="", cwd=""):
+        async def mock_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
             nonlocal active_prompts, max_simultaneous_prompts
             active_prompts += 1
             max_simultaneous_prompts = max(max_simultaneous_prompts, active_prompts)
             call_order.append(req_id)
             received_cwds.append(cwd)
+            received_container_cwds.append(container_cwd)
             await asyncio.sleep(0.1)
             active_prompts -= 1
             return True
@@ -234,14 +236,15 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
             # Must have evaluated strictly sequentially (max 1 prompt active at any instant)
             self.assertEqual(max_simultaneous_prompts, 1)
             self.assertEqual(call_order, ["req-first", "req-second"])
-            # The dialog must receive the resolved working directory for each request
+            # The dialog must receive both the in-container and out-of-container directories
             self.assertEqual(received_cwds, [self.temp_dir, self.temp_dir])
+            self.assertEqual(received_container_cwds, [self.temp_dir, self.temp_dir])
         finally:
             host_exec_daemon.prompt_user_approval_async = orig_prompt
 
     async def test_interactive_approval_denial(self):
         """Verify user denial cleanly aborts execution with denied_by_user and no process runs."""
-        async def mock_denial(cmd_name, args, req_id="", traj_id="", cwd=""):
+        async def mock_denial(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
             return False
 
         orig_prompt = host_exec_daemon.prompt_user_approval_async
