@@ -63,7 +63,11 @@ def generate_compose_override(
     common_env = list(common.environment)
 
     dir_skill_resolver = DirectorySkillResolver(sandbox_dir=norm_sandbox)
-    catalog_skill_resolver = CatalogSkillResolver(allowed_workspaces=config.allowed_workspaces)
+    catalog_skill_resolver = CatalogSkillResolver(
+        allowed_workspaces=config.allowed_workspaces,
+        allowed_skill_roots=config.allowed_skill_roots,
+        sandbox_dir=norm_sandbox,
+    )
 
     out_path = os.path.abspath(os.path.expanduser(override_file)) if override_file else None
 

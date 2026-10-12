@@ -39,3 +39,4 @@ class EngineManifest:
 class SandboxConfig:
     allowed_workspaces: tuple[str, ...] = ()
     allowed_commands: dict[str, Any] = field(default_factory=dict)
+    allowed_skill_roots: tuple[str, ...] = ()

@@ -91,11 +91,21 @@ class TestLoader(unittest.TestCase):
         initial = SandboxConfig(
             allowed_workspaces=("/Users/test/code",),
             allowed_commands={"git": {"allowed_args_regex": "status"}},
+            allowed_skill_roots=("/Users/test/shared-skills",),
         )
         save_sandbox_config(initial, cfg_file)
         loaded = load_sandbox_config(cfg_file)
         self.assertEqual(loaded.allowed_workspaces, ("/Users/test/code",))
         self.assertIn("git", loaded.allowed_commands)
+        self.assertEqual(loaded.allowed_skill_roots, ("/Users/test/shared-skills",))
+
+    def test_load_sandbox_config_accepts_scalar_roots(self):
+        cfg_file = os.path.join(self.temp_dir, "whitelist.yaml")
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            f.write("allowed_workspaces: /tmp/one\nallowed_skill_roots: /tmp/skills\n")
+        loaded = load_sandbox_config(cfg_file)
+        self.assertEqual(loaded.allowed_workspaces, ("/tmp/one",))
+        self.assertEqual(loaded.allowed_skill_roots, ("/tmp/skills",))
 
     def test_legacy_state_migrates_only_when_canonical_directory_is_absent(self):
         legacy_dir = os.path.join(self.temp_dir, "legacy")

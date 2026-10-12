@@ -141,7 +141,7 @@ User modifications and package caches persist in engine-isolated named Docker vo
 ### 3. Container-First Customizations: Rules & Skills
 The sandbox automatically discovers and integrates agent skills and rules without exposing host files:
 - **Rule Compilation Hierarchy**: Deterministically aggregates built-in common rules (`customizations/rules/*.md`), common user rules (`~/.agent-sandbox/common/rules/*.md`), built-in engine rules (`engines/<engine>/rules/*.md`), engine user rules (`~/.agent-sandbox/<engine>/rules/*.md`), and host global rules, shadowing them into the container without modifying host files.
-- **Skill Discovery**: Scans `~/.agent-sandbox/{common, <engine>}/skills/` and JSON skill catalogs (`skills.json`, `.agents/skills.json`), mounting discovered external skills read-only (`:ro`).
+- **Skill Discovery**: Scans `~/.agent-sandbox/{common, <engine>}/skills/` and JSON skill catalogs (`skills.json`, `.agents/skills.json`), mounting discovered external skills read-only (`:ro`). Because catalogs can live in agent-writable locations, every catalog entry is containment-checked against a default-deny allowlist — the sandbox's own `{common, <engine>}/skills/` directories plus any roots explicitly listed under `allowed_skill_roots` in `~/.agent-sandbox/whitelist.yaml`. Entries pointing anywhere else on the host are ignored with a warning.
 
 Inspect active skills and compiled rules using:
 ```bash

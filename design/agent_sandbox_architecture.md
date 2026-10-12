@@ -158,7 +158,7 @@ The compiled output is saved to `~/.agent-sandbox/<engine>/<target>` and bind-mo
 ### 4.2 Dual Skill Resolution Pipeline
 Skills are resolved through two complementary engines:
 - **`DirectorySkillResolver`**: Scans `~/.agent-sandbox/common/skills/` and `~/.agent-sandbox/<engine>/skills/`. Subdirectories containing `SKILL.md` are mounted into the engine's `skills.target_dir`. Engine-specific skills override common skills of the same name.
-- **`CatalogSkillResolver`**: Discovers skills referenced in JSON catalog files (`skills.json`, `.agents/skills.json`), traverses recursive `"inherits"` chains with cycle detection, validates host paths, prunes skills inside workspaces, and mounts external skill repositories `:ro`.
+- **`CatalogSkillResolver`**: Discovers skills referenced in JSON catalog files (`skills.json`, `.agents/skills.json`), traverses recursive `"inherits"` chains with cycle detection, validates host paths, prunes skills inside workspaces, and mounts external skill repositories `:ro`. Because catalogs can live in agent-writable locations, each resolved path is containment-checked with a single `realpath` against a default-deny allowlist: the sandbox's `{common, <engine>}/skills/` directories and `allowed_skill_roots` from the host-only `whitelist.yaml`. The canonical path from that resolution is mounted, so a symlink swapped after validation cannot redirect the mount; entries outside the roots are never mounted.
 
 ---
 

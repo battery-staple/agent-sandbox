@@ -144,6 +144,56 @@ class TestGenerator(unittest.TestCase):
         self.assertEqual(parsed["volumes"]["agent_home_opencode"]["name"], "agent_home_opencode")
         self.assertEqual(parsed["volumes"]["agent_home_antigravity"]["name"], "agent_home_antigravity")
 
+    def test_catalog_skill_containment(self):
+        """A workspace catalog cannot bind-mount arbitrary host directories."""
+        sensitive = os.path.join(self.temp_dir, "sensitive")
+        os.makedirs(sensitive)
+        os.makedirs(os.path.join(self.ws_dir, ".agents"))
+        catalog_path = os.path.join(self.ws_dir, ".agents", "skills.json")
+        with open(catalog_path, "w", encoding="utf-8") as f:
+            import json
+            json.dump({"entries": [{"path": sensitive}]}, f)
+
+        engine = EngineManifest(
+            name="antigravity",
+            port=58432,
+            web_url="https://localhost:58432",
+            skills=EngineSkillConfig(
+                target_dir="/home/developer/.gemini/antigravity/builtin/skills",
+                catalogs=(".agents/skills.json",),
+            ),
+            mounts=("~/.gemini",),
+        )
+        override_file = os.path.join(self.temp_dir, "docker-compose.override.yml")
+
+        # Default (deny): the sensitive path must not be mounted.
+        generate_compose_override(
+            active_engines=[engine],
+            config=SandboxConfig(allowed_workspaces=(self.ws_dir,)),
+            repo_root=self.repo_root,
+            sandbox_dir=self.sandbox_dir,
+            override_file=override_file,
+            fs_root=self.fs_root,
+        )
+        with open(override_file, "r", encoding="utf-8") as f:
+            parsed = yaml.safe_load(f)
+        volumes = parsed["services"]["antigravity"]["volumes"]
+        self.assertFalse(any(sensitive in v for v in volumes))
+
+        # Explicitly allowlisted: the same path is mounted read-only.
+        generate_compose_override(
+            active_engines=[engine],
+            config=SandboxConfig(allowed_workspaces=(self.ws_dir,), allowed_skill_roots=(sensitive,)),
+            repo_root=self.repo_root,
+            sandbox_dir=self.sandbox_dir,
+            override_file=override_file,
+            fs_root=self.fs_root,
+        )
+        with open(override_file, "r", encoding="utf-8") as f:
+            parsed = yaml.safe_load(f)
+        volumes = parsed["services"]["antigravity"]["volumes"]
+        self.assertTrue(any(v == f"{sensitive}:{sensitive}:ro" for v in volumes))
+
     def test_generate_compose_override_preserves_existing_services(self):
         engine_anti = EngineManifest(
             name="antigravity",

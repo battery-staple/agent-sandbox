@@ -52,6 +52,7 @@ class TestModels(unittest.TestCase):
         cfg = SandboxConfig()
         self.assertEqual(cfg.allowed_workspaces, ())
         self.assertEqual(cfg.allowed_commands, {})
+        self.assertEqual(cfg.allowed_skill_roots, ())
         with self.assertRaises(FrozenInstanceError):
             cfg.allowed_workspaces = ("/path",)
 

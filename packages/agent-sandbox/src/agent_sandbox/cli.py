@@ -634,6 +634,7 @@ class SandboxCLI:
         new_config = SandboxConfig(
             allowed_workspaces=tuple(curr_workspaces),
             allowed_commands=config.allowed_commands,
+            allowed_skill_roots=config.allowed_skill_roots,
         )
         save_sandbox_config(new_config, self.config_file)
         print(f"[Sandbox] Successfully whitelisted workspace: {target}")
@@ -663,6 +664,7 @@ class SandboxCLI:
         new_config = SandboxConfig(
             allowed_workspaces=tuple(curr_workspaces),
             allowed_commands=config.allowed_commands,
+            allowed_skill_roots=config.allowed_skill_roots,
         )
         save_sandbox_config(new_config, self.config_file)
         print(f"[Sandbox] Removed workspace: {target}")
@@ -722,7 +724,11 @@ class SandboxCLI:
         config = self.ensure_scaffolding()
         engines = [self.registry.get(engine_name)] if engine_name else self.registry.list_all()
         dir_resolver = DirectorySkillResolver(self.sandbox_dir)
-        catalog_resolver = CatalogSkillResolver(config.allowed_workspaces)
+        catalog_resolver = CatalogSkillResolver(
+            config.allowed_workspaces,
+            allowed_skill_roots=config.allowed_skill_roots,
+            sandbox_dir=self.sandbox_dir,
+        )
 
         print("==========================================================")
         print("  Discovered Skills")
