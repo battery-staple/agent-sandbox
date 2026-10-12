@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Antigravity npx wrapper: intercepts chrome-devtools-mcp requests to route to container wrapper
+# Agent Sandbox npx wrapper: intercepts chrome-devtools-mcp requests to route to container wrapper
 
 is_mcp=false
 for arg in "$@"; do

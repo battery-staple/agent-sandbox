@@ -1,6 +1,6 @@
-# Future Improvement: Egress Proxy Sidecar Filtering for Antigravity Sandbox
+# Future Improvement: Egress Proxy Sidecar Filtering for Agent Sandbox
 
-This document outlines an optional, enterprise-grade future enhancement for the **Antigravity Docker Sandbox**: adding an **Egress Filtering Sidecar** to restrict and cryptographically audit outbound network traffic from the sandbox container.
+This document outlines an optional, enterprise-grade future enhancement for the **Agent Sandbox**: adding an **Egress Filtering Sidecar** to restrict and cryptographically audit outbound network traffic from the sandbox container.
 
 ---
 
@@ -20,7 +20,7 @@ For organizations or developers requiring strict data exfiltration prevention, a
 ```mermaid
 flowchart LR
     subgraph Docker_Bridge ["Docker Compose Bridge Network"]
-        SBX["antigravity-sandbox (Agent / Compilers)"]
+        SBX["agent-sandbox-antigravity (Agent / Compilers)"]
         PROXY["egress-proxy Sidecar (Squid / Envoy :3128)"]
         DIRECT["Direct Internet Outbound"]
     end
@@ -53,7 +53,7 @@ To add the sidecar, add an `egress-proxy` service in `docker-compose.override.ym
 
 ```yaml
 services:
-  antigravity-sandbox:
+  antigravity:
     environment:
       - HTTP_PROXY=http://egress-proxy:3128
       - HTTPS_PROXY=http://egress-proxy:3128
@@ -64,7 +64,7 @@ services:
 
   egress-proxy:
     image: ubuntu/squid:edge
-    container_name: antigravity-egress-proxy
+    container_name: agent-egress-proxy
     restart: unless-stopped
     volumes:
       - ./security/egress-whitelist.squid.conf:/etc/squid/squid.conf:ro
@@ -104,5 +104,5 @@ http_port 3128
 
 ## 4. Why This is Recommended as a Future Add-on
 
-1. **Zero Base Code Changes**: The base Antigravity Docker container image (`Dockerfile.sandbox`) requires no modifications to support this. Proxy variables are standard across Linux developer toolchains.
+1. **Zero Base Code Changes**: The base Agent Sandbox container image (`Dockerfile.sandbox`) requires no modifications to support this. Proxy variables are standard across Linux developer toolchains.
 2. **Easy Step-Up**: Developers can adopt the base sandbox today with zero proxy configuration friction, and attach the egress sidecar later when organizational or security compliance requirements demand it.

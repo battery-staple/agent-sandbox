@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity Host-Exec Daemon
+Agent Sandbox Host-Exec Daemon
 Runs on macOS host listening on TCP localhost.
 Validates HMAC authentication tokens and whitelist policy before executing commands on host.
 Supports concurrent connections, interactive approval queuing, and process lifecycle management.
@@ -318,7 +318,7 @@ on run argv
     set prompt_text to item 2 of argv
 
     set theAlert to current application's NSAlert's alloc()'s init()
-    theAlert's setMessageText:"Antigravity Host Execution Request"
+    theAlert's setMessageText:"Agent Sandbox Host Execution Request"
     theAlert's setInformativeText:prompt_text
     theAlert's setAlertStyle:2
 
@@ -385,7 +385,7 @@ async def prompt_user_approval_async(
         context_lines.append(f"Request: {req_id}")
 
     prompt_parts = [
-        "Antigravity Container is requesting to execute the following command on your macOS host:"
+        "Agent Sandbox is requesting to execute the following command on your macOS host:"
     ]
     if context_lines:
         prompt_parts.append("\n".join(context_lines))
@@ -419,7 +419,7 @@ async def prompt_user_approval_async(
         fallback_script = (
             f'display dialog "{escaped_prompt}" '
             f'default answer "{escaped_cmd}" '
-            f'with title "Antigravity Host Execution Request" '
+            f'with title "Agent Sandbox Host Execution Request" '
             f'buttons {{"Deny", "Approve"}} default button "Deny" with icon caution'
         )
         proc = await asyncio.create_subprocess_exec(

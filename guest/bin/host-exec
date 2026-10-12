@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity Host-Exec Guest Client
+Agent Sandbox Host-Exec Guest Client
 Executed inside the container (or on host) to invoke whitelisted commands on host macOS.
 """
 
@@ -214,7 +214,7 @@ def main():
                 print(
                     f"REMEDIATION STEPS FOR THE AGENT:\n"
                     f"1. Ask the user to restart the host-bridge daemon on their macOS host:\n"
-                    f"       antigravity-sandbox host-bridge\n"
+                    f"       agent-sandbox host-bridge\n"
                     f"================================================================================\n",
                     file=sys.stderr,
                 )
@@ -235,7 +235,7 @@ def main():
             f"Reason: {e}\n\n"
             f"REMEDIATION STEPS FOR THE AGENT:\n"
             f"1. Ask the user to ensure the host bridge daemon is running properly on macOS:\n"
-            f"       antigravity-sandbox host-bridge\n"
+            f"       agent-sandbox host-bridge\n"
             f"2. Retry after the user confirms it is running.\n"
             f"================================================================================\n",
             file=sys.stderr,

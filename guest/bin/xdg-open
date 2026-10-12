@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Google Antigravity Sandbox: In-Container xdg-open Bridge
+# Agent Sandbox: In-Container xdg-open Bridge
 # ==============================================================================
 # Intercepts browser open calls inside the container (e.g. Google OAuth login)
 # and opens them on the host macOS desktop via host-exec, or prints the URL.
