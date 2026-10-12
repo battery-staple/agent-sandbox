@@ -1,8 +1,9 @@
 # ==============================================================================
-# Google Antigravity Container Sandbox
+# Agent Sandbox
 # ==============================================================================
-# A secure, high-performance containerized runtime designed for the Google
-# Antigravity Desktop App backend and agent execution engine.
+# A secure, high-performance containerized runtime for autonomous AI coding
+# agents (OpenCode, Google Antigravity, and extensible custom engines) using
+# Docker on macOS.
 #
 # Key Architectural Characteristics:
 # 1. Isolation: Runs agent commands inside an isolated Linux namespace.

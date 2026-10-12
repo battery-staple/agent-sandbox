@@ -71,8 +71,8 @@ flowchart TB
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/battery-staple/antigravity-container.git
-cd antigravity-container
+git clone https://github.com/battery-staple/agent-sandbox.git
+cd agent-sandbox
 ```
 
 ### 2. Setup CLI
@@ -113,7 +113,7 @@ Because the sandbox container runs Linux, macOS-native binaries (such as `xcodeb
 Security is enforced through a strict whitelist policy defined in `~/.agent-sandbox/whitelist.yaml`. Inside the container, the agent invokes allowed utilities transparently using `host-exec <command>` and can inspect active permissions with `host-exec --list`. The bridge runs each command in the host directory matching the container's working directory, translating paths under the container home `/home/developer` onto the host home directory (`/home/developer/project` -> `~/project`).
 
 ### 2. Pre-Installed Toolchains & State Persistence
-System compilers and base tools are declared in [`Dockerfile.sandbox`](file:///Users/rohengiralt/Documents/Code/LLM/antigravity-container/Dockerfile.sandbox):
+System compilers and base tools are declared in [`Dockerfile.sandbox`](Dockerfile.sandbox):
 - **Node.js & JavaScript**: Node.js 22 (LTS), `npm`, `yarn`, `pnpm`, `bun`
 - **Python**: Python 3.12 (`python3`, `pip`, `venv`)
 - **Go**: Go 1.23 (`go`, `GOPATH=/home/developer/go`)
