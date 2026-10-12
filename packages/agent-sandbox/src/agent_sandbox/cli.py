@@ -24,9 +24,6 @@ def get_repo_root() -> str:
     """Returns the repository root path from AGENT_SANDBOX_REPO_ROOT or fails fast."""
     repo_root = os.environ.get("AGENT_SANDBOX_REPO_ROOT")
     if not repo_root:
-        candidate = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-        if os.path.isdir(os.path.join(candidate, "engines")):
-            return candidate
         raise RuntimeError(
             "AGENT_SANDBOX_REPO_ROOT environment variable is not set. "
             "Please invoke agent-sandbox via bin/agent-sandbox or export AGENT_SANDBOX_REPO_ROOT."
@@ -42,25 +39,32 @@ def get_repo_root() -> str:
 def resolve_engines(cli: SandboxCLI) -> list[str]:
     try:
         return [e.name for e in cli.registry.list_all()]
-    except Exception:
+    except Exception as exc:
+        if os.environ.get("AGENT_SANDBOX_DEBUG"):
+            print(f"[Completion Debug] resolve_engines error: {exc}", file=sys.stderr)
         return []
 
 
 def resolve_whitelisted_workspaces(cli: SandboxCLI) -> list[str]:
+    if not os.path.isfile(cli.config_file):
+        return []
     try:
-        config = cli.ensure_scaffolding()
-        return list(config.allowed_workspaces)
-    except Exception:
+        return list(load_sandbox_config(cli.config_file).allowed_workspaces)
+    except Exception as exc:
+        if os.environ.get("AGENT_SANDBOX_DEBUG"):
+            print(f"[Completion Debug] resolve_whitelisted_workspaces error: {exc}", file=sys.stderr)
         return []
 
 
 def resolve_sandbox_entries(cli: SandboxCLI) -> list[str]:
+    if not os.path.isdir(cli.sandbox_dir):
+        return []
     try:
-        if os.path.isdir(cli.sandbox_dir):
-            return [f for f in os.listdir(cli.sandbox_dir) if not f.startswith(".")]
-    except Exception:
-        pass
-    return []
+        return [f for f in os.listdir(cli.sandbox_dir) if not f.startswith(".")]
+    except OSError as exc:
+        if os.environ.get("AGENT_SANDBOX_DEBUG"):
+            print(f"[Completion Debug] resolve_sandbox_entries error: {exc}", file=sys.stderr)
+        return []
 
 
 app = CLIApp(name="agent-sandbox")
@@ -818,11 +822,17 @@ class SandboxCLI:
     def cmd_completion_install(self, shell: str | None = None) -> int:
         target_shell = shell
         if not target_shell:
-            user_shell = os.environ.get("SHELL", "").lower()
-            if "bash" in user_shell:
-                target_shell = "bash"
+            shell_bin = os.path.basename(os.environ.get("SHELL", "")).lower()
+            if shell_bin in ("zsh", "bash"):
+                target_shell = shell_bin
             else:
-                target_shell = "zsh"
+                detected = shell_bin or "unknown"
+                print(
+                    f"[Completion Error] Unsupported or unrecognized shell: '{detected}'. "
+                    "Please explicitly specify --shell zsh or --shell bash.",
+                    file=sys.stderr,
+                )
+                return 1
 
         if target_shell not in ("zsh", "bash"):
             print(f"[Completion Error] Unsupported shell: {target_shell}. Supported: zsh, bash", file=sys.stderr)
@@ -838,8 +848,8 @@ class SandboxCLI:
                 if eval_line in content:
                     print(f"[Completion] Tab-completion is already configured in {rc_file}.")
                     return 0
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError) as exc:
+                print(f"[Completion Warning] Could not inspect {rc_file}: {exc}", file=sys.stderr)
 
         try:
             with open(rc_file, "a", encoding="utf-8") as f:
@@ -847,7 +857,7 @@ class SandboxCLI:
             print(f"[Completion] Successfully added tab-completion loader to {rc_file}.")
             print(f"[Completion] Run 'source {rc_file}' or start a new terminal session to enable it.")
             return 0
-        except Exception as exc:
+        except OSError as exc:
             print(f"[Completion Error] Failed to write to {rc_file}: {exc}", file=sys.stderr)
             return 1
 

@@ -18,9 +18,12 @@ from agent_sandbox.framework import generate_completion_script
 class TestCompletionCommands(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="test_completion_")
+        self.env_patcher = mock.patch.dict(os.environ, {"AGENT_SANDBOX_REPO_ROOT": self.tmpdir})
+        self.env_patcher.start()
         self.cli = SandboxCLI(repo_root=self.tmpdir, sandbox_dir=os.path.join(self.tmpdir, "sandbox"))
 
     def tearDown(self):
+        self.env_patcher.stop()
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
@@ -91,6 +94,22 @@ class TestCompletionCommands(unittest.TestCase):
     def test_install_unsupported_shell(self):
         code = self.cli.cmd_completion_install(shell="csh")
         self.assertEqual(code, 1)
+
+    def test_install_auto_detect_unsupported_shell(self):
+        with mock.patch.dict(os.environ, {"SHELL": "/usr/local/bin/fish"}):
+            code = self.cli.cmd_completion_install()
+            self.assertEqual(code, 1)
+
+    def test_install_auto_detect_zsh(self):
+        fake_home = os.path.join(self.tmpdir, "home_zsh")
+        os.makedirs(fake_home, exist_ok=True)
+        with (
+            mock.patch.dict(os.environ, {"SHELL": "/bin/zsh"}),
+            mock.patch("os.path.expanduser", side_effect=lambda p: p.replace("~", fake_home)),
+        ):
+            code = self.cli.cmd_completion_install()
+            self.assertEqual(code, 0)
+            self.assertTrue(os.path.isfile(os.path.join(fake_home, ".zshrc")))
 
 
 if __name__ == "__main__":
