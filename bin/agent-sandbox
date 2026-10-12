@@ -19,7 +19,11 @@ if [ "$1" = "_complete" ]; then
   export PYTHONPATH="$REPO_ROOT/packages/agent-sandbox/src:$REPO_ROOT/packages/host-exec-daemon:$PYTHONPATH"
   PY_BIN="$VENV_PY"
   if [ ! -x "$PY_BIN" ]; then
-    PY_BIN="$(which python3 2>/dev/null || true)"
+    PY_BIN="$(command -v python3 2>/dev/null || true)"
+  fi
+  if [ -z "$PY_BIN" ] || [ ! -x "$PY_BIN" ]; then
+    echo "[Sandbox Error] Python 3 is required for shell completions." >&2
+    exit 1
   fi
   exec "$PY_BIN" -m agent_sandbox.cli "$@"
 fi
@@ -33,7 +37,7 @@ if [ ! -d "$SANDBOX_DIR" ] && [ -d "$HOME/.antigravity-sandbox" ]; then
 fi
 
 if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c "import yaml, jsonschema" 2>/dev/null; then
-  HOST_PY="$(which python3 2>/dev/null || true)"
+  HOST_PY="$(command -v python3 2>/dev/null || true)"
   if [ -z "$HOST_PY" ]; then
     echo "[Sandbox Error] Python 3 is required on host." >&2
     exit 1

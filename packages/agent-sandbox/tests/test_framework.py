@@ -139,13 +139,100 @@ class TestFrameworkCore(unittest.TestCase):
         res = test_app.complete(None, "zsh", 3, ["test-cli", "mkdir", ""])
         self.assertEqual(res, ["__DIRS__"])
 
+    def test_unrecognized_option_fails_fast(self):
+        test_app = CLIApp(name="test-cli")
+
+        @test_app.command("run")
+        def cmd_run():
+            return 0
+
+        code = test_app.dispatch(None, ["run", "--unknown-flag"])
+        self.assertEqual(code, 1)
+
+    def test_option_requires_argument(self):
+        test_app = CLIApp(name="test-cli")
+
+        @test_app.command("build")
+        @option("--tag", is_flag=False, dest="tag")
+        def cmd_build(tag: str = "latest"):
+            return 0
+
+        code = test_app.dispatch(None, ["build", "--tag"])
+        self.assertEqual(code, 1)
+
+    def test_end_of_options_delimiter(self):
+        test_app = CLIApp(name="test-cli")
+        received = []
+
+        @test_app.command("echo")
+        @argument("args", nargs="*")
+        def cmd_echo(args: list[str]):
+            received.extend(args)
+            return 0
+
+        code = test_app.dispatch(None, ["echo", "--", "--not-a-flag", "hello"])
+        self.assertEqual(code, 0)
+        self.assertEqual(received, ["--not-a-flag", "hello"])
+
+    def test_pass_context_standalone(self):
+        test_app = CLIApp(name="test-cli")
+        captured_ctx = []
+
+        @test_app.command("ctx-cmd", pass_context=True)
+        def cmd_with_ctx(ctx):
+            captured_ctx.append(ctx)
+            return 0
+
+        code = test_app.dispatch("my-context-object", ["ctx-cmd"])
+        self.assertEqual(code, 0)
+        self.assertEqual(captured_ctx, ["my-context-object"])
+
+    def test_strict_exit_code_conversion(self):
+        test_app = CLIApp(name="test-cli")
+
+        @test_app.command("none-cmd")
+        def cmd_none():
+            return None
+
+        @test_app.command("bool-cmd")
+        def cmd_bool():
+            return True
+
+        @test_app.command("invalid-cmd")
+        def cmd_invalid():
+            return "not-an-int"
+
+        self.assertEqual(test_app.dispatch(None, ["none-cmd"]), 0)
+        self.assertEqual(test_app.dispatch(None, ["bool-cmd"]), 0)
+        with self.assertRaises(TypeError):
+            test_app.dispatch(None, ["invalid-cmd"])
+
+    def test_bounds_checked_completion(self):
+        test_app = CLIApp(name="test-cli")
+        grp = test_app.group("ws")
+
+        @grp.command("list")
+        def ws_list():
+            pass
+
+        # Incomplete or short words list at level 2+ shouldn't raise IndexError
+        self.assertEqual(test_app.complete(None, "bash", 2, ["test-cli"]), [])
+        self.assertEqual(test_app.complete(None, "bash", 3, ["test-cli", "ws"]), [])
+
 
 class TestSandboxCLICompletions(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="test_framework_cli_")
+        self.env_patcher = mock.patch.dict(os.environ, {"AGENT_SANDBOX_REPO_ROOT": self.tmpdir})
+        self.env_patcher.start()
         self.cli = SandboxCLI(repo_root=self.tmpdir, sandbox_dir=os.path.join(self.tmpdir, "sandbox"))
         self.cli.registry.register(EngineManifest(name="opencode", port=4096, web_url="http://127.0.0.1:4096"))
         self.cli.registry.register(EngineManifest(name="antigravity", port=58432, web_url="https://localhost:58432"))
+
+    def tearDown(self):
+        self.env_patcher.stop()
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_top_level_completions(self):
         candidates = app.complete(self.cli, "zsh", 2, ["agent-sandbox", ""])
@@ -186,15 +273,20 @@ class TestSandboxCLICompletions(unittest.TestCase):
         self.assertIn("ls", candidate_names)
 
     def test_workspace_remove_dynamic_completions(self):
+        from agent_sandbox.config.models import SandboxConfig
+        from agent_sandbox.config.loader import save_sandbox_config
+
+        config = SandboxConfig(
+            allowed_workspaces=("/Users/dev/project-a", "/Users/dev/project-b"),
+            allowed_commands={},
+        )
+        save_sandbox_config(config, self.cli.config_file)
         with mock.patch.object(self.cli, "ensure_scaffolding") as mock_scaffold:
-            from agent_sandbox.config.models import SandboxConfig
-            mock_scaffold.return_value = SandboxConfig(
-                allowed_workspaces=("/Users/dev/project-a", "/Users/dev/project-b"),
-                allowed_commands={},
-            )
             candidates = app.complete(self.cli, "zsh", 4, ["agent-sandbox", "workspace", "remove", ""])
             self.assertIn("/Users/dev/project-a", candidates)
             self.assertIn("/Users/dev/project-b", candidates)
+            # Verify tab completion never triggers mutating scaffolding or migrations
+            self.assertFalse(mock_scaffold.called)
 
     def test_host_bridge_subcommand_completions(self):
         candidates = app.complete(self.cli, "zsh", 3, ["agent-sandbox", "host-bridge", ""])

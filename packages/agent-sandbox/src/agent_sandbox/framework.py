@@ -16,6 +16,7 @@ class Option:
     default: Any = False
     dest: str | None = None
     value: Any = True
+    show_in_usage: bool = True
 
     def __post_init__(self) -> None:
         if not self.dest:
@@ -42,6 +43,7 @@ class Command:
     options: list[Option] = field(default_factory=list)
     arguments: list[Argument] = field(default_factory=list)
     custom_usage: str | None = None
+    pass_context: bool = False
 
     @property
     def all_names(self) -> list[str]:
@@ -67,6 +69,7 @@ class Group:
         aliases: list[str] | None = None,
         help: str = "",
         custom_usage: str | None = None,
+        pass_context: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             options = getattr(fn, "_cli_options", [])
@@ -79,6 +82,7 @@ class Group:
                 options=list(reversed(options)),
                 arguments=list(reversed(arguments)),
                 custom_usage=custom_usage,
+                pass_context=pass_context,
             )
             self.commands[name] = cmd
             return fn
@@ -101,6 +105,7 @@ def option(
     default: Any = False,
     dest: str | None = None,
     value: Any = True,
+    show_in_usage: bool = True,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to declare an option/flag on a command."""
     opt = Option(
@@ -110,6 +115,7 @@ def option(
         default=default,
         dest=dest,
         value=value,
+        show_in_usage=show_in_usage,
     )
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -161,6 +167,7 @@ class CLIApp:
         aliases: list[str] | None = None,
         help: str = "",
         custom_usage: str | None = None,
+        pass_context: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             options = getattr(fn, "_cli_options", [])
@@ -173,6 +180,7 @@ class CLIApp:
                 options=list(reversed(options)),
                 arguments=list(reversed(arguments)),
                 custom_usage=custom_usage,
+                pass_context=pass_context,
             )
             self.commands[name] = cmd
             return fn
@@ -239,10 +247,9 @@ class CLIApp:
                 else:
                     usage_parts.append(f"<{arg.name}>")
             for opt in cmd.options:
-                if opt.flags:
+                if opt.show_in_usage and opt.flags:
                     primary_flag = next((f for f in opt.flags if f.startswith("--")), opt.flags[0])
-                    if primary_flag in ("--no-host-bridge", "--force", "-y"):
-                        usage_parts.append(f"[{primary_flag}]")
+                    usage_parts.append(f"[{primary_flag}]" if opt.is_flag else f"[{primary_flag} <{opt.dest}>]")
             entries.append((" ".join(usage_parts), cmd.help))
 
         for grp in self.groups.values():
@@ -264,9 +271,9 @@ class CLIApp:
                     else:
                         usage_parts.append(f"<{arg.name}>")
                 for opt in sub_cmd.options:
-                    if opt.flags:
-                        opt_str = "|".join(opt.flags)
-                        usage_parts.append(f"[{opt_str}]")
+                    if opt.show_in_usage and opt.flags:
+                        primary_flag = next((f for f in opt.flags if f.startswith("--")), opt.flags[0])
+                        usage_parts.append(f"[{primary_flag}]" if opt.is_flag else f"[{primary_flag} <{opt.dest}>]")
                 entries.append((" ".join(usage_parts), sub_cmd.help))
 
         max_len = 39
@@ -327,6 +334,10 @@ class CLIApp:
         i = 0
         while i < len(raw_args):
             token = raw_args[i]
+            if token == "--":
+                pos_tokens.extend(raw_args[i + 1:])
+                break
+
             matched_option = False
             for opt in cmd.options:
                 if token in opt.flags:
@@ -335,12 +346,17 @@ class CLIApp:
                         if opt.dest:
                             kwargs[opt.dest] = opt.value
                     else:
-                        if i + 1 < len(raw_args):
-                            if opt.dest:
-                                kwargs[opt.dest] = raw_args[i + 1]
-                            i += 1
+                        if i + 1 >= len(raw_args) or raw_args[i + 1].startswith("-"):
+                            print(f"[Sandbox Error] Option '{token}' requires an argument.", file=sys.stderr)
+                            return 1
+                        i += 1
+                        if opt.dest:
+                            kwargs[opt.dest] = raw_args[i]
                     break
             if not matched_option:
+                if token.startswith("-") and len(token) > 1:
+                    print(f"[Sandbox Error] Unrecognized option: {token}", file=sys.stderr)
+                    return 1
                 pos_tokens.append(token)
             i += 1
 
@@ -371,12 +387,12 @@ class CLIApp:
         sig = inspect.signature(handler)
         params = list(sig.parameters.values())
 
-        accepts_context = False
-        if params and params[0].name in ("self", "context", "cli") and not inspect.ismethod(handler):
-            accepts_context = True
-
-        call_args: list[Any] = [context] if accepts_context else []
-        call_args.extend(args_to_pass)
+        if inspect.ismethod(handler) or (context is not None and hasattr(context, cmd.handler.__name__)):
+            call_args: list[Any] = list(args_to_pass)
+        elif cmd.pass_context:
+            call_args = [context] + list(args_to_pass)
+        else:
+            call_args = list(args_to_pass)
 
         call_kwargs = {}
         for k, v in kwargs.items():
@@ -384,7 +400,13 @@ class CLIApp:
                 call_kwargs[k] = v
 
         res = handler(*call_args, **call_kwargs)
-        return res if isinstance(res, int) else 0
+        if res is None:
+            return 0
+        if isinstance(res, bool):
+            return 0 if res else 1
+        if isinstance(res, int):
+            return res
+        raise TypeError(f"Command '{cmd.name}' handler returned non-integer exit code: {type(res).__name__}")
 
     def complete(self, context: Any, shell: str, cword: int, words: list[str]) -> list[str]:
         """Resolves tab completions for Zsh or Bash dynamically."""
@@ -406,6 +428,9 @@ class CLIApp:
             return self._format_candidates(shell, candidates, cur)
 
         # Level 2+: Inside a command or group
+        if len(words) < 2:
+            return []
+
         first_word = words[1]
         cmd, group = self.get_target(first_word)
 
@@ -417,6 +442,9 @@ class CLIApp:
                     for alias in sub_cmd.aliases:
                         candidates.append((alias, f"{sub_cmd.help} (alias)"))
                 return self._format_candidates(shell, candidates, cur)
+
+            if len(words) < 3:
+                return []
 
             sub_name = words[2]
             sub_cmd = group.get_command(sub_name)
@@ -469,8 +497,9 @@ class CLIApp:
                             candidates.append(v)
                         else:
                             candidates.append((v, ""))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if os.environ.get("AGENT_SANDBOX_DEBUG"):
+                        print(f"[Completion Debug] Resolver for '{target_arg.name}' error: {exc}", file=sys.stderr)
 
         for opt in cmd.options:
             for flag in opt.flags:
