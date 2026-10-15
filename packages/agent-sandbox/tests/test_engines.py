@@ -1,4 +1,4 @@
-"""Tests for modular engine adapters (opencode + antigravity) and parse-once runtimes."""
+"""Tests for modular engine adapters (opencode + antigravity + codex) and parse-once runtimes."""
 import os
 import sys
 import tempfile
@@ -9,6 +9,8 @@ PKG_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
 from agent_sandbox.engines import (
     EngineRuntime,
     get_adapter,
@@ -17,6 +19,7 @@ from agent_sandbox.engines import (
 )
 from agent_sandbox.engines.antigravity import AntigravityUserConfig, parse_antigravity_user_config
 from agent_sandbox.engines.opencode import OpencodeUserConfig, parse_opencode_user_config
+from agent_sandbox.registry.engines import discover_engines
 
 
 class TestOpencodeAdapter(unittest.TestCase):
@@ -79,6 +82,18 @@ class TestAntigravityAdapter(unittest.TestCase):
     def test_compose_env_default(self):
         adapter = get_adapter("antigravity")
         self.assertEqual(adapter.compose_env(AntigravityUserConfig()), ("BROWSER_MODE=auto",))
+
+
+class TestCodexDiscovery(unittest.TestCase):
+    def test_repo_engines_find_codex_with_ssh_connection(self):
+        registry = discover_engines(os.path.join(REPO_ROOT, "engines"))
+        names = [e.name for e in registry.list_all()]
+        self.assertIn("codex", names)
+        codex = registry.get("codex")
+        self.assertEqual(codex.port, 58434)
+        self.assertEqual(codex.connection.type, "ssh")
+        self.assertEqual(codex.connection.user, "developer")
+        self.assertEqual(codex.connection.host_alias, "agent-sandbox-codex")
 
 
 class TestRuntimes(unittest.TestCase):
