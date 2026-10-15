@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary & Core Objective
 
-The **Multi-Agent Container Sandbox** (`agent-sandbox`) provides a unified, secure, high-performance containerized execution runtime for autonomous AI coding agents (such as **OpenCode**, **Google Antigravity**, and future engines) using Docker on macOS.
+The **Multi-Agent Container Sandbox** (`agent-sandbox`) provides a unified, secure, high-performance containerized execution runtime for autonomous AI coding agents (such as **OpenCode**, **Google Antigravity**, **Codex**, and future engines) using Docker on macOS.
 
 ### 1.1 The Core Problem & Security Invariant
 Autonomous coding agents routinely execute shell commands, compile source trees, and manipulate environments. Running these tools directly on macOS exposes developers to critical hazards:
@@ -87,7 +87,7 @@ flowchart LR
 
 ### 3.1 The Engine Adapter Contract
 Every engine lives in `engines/<name>/` and implements three files:
-1. `manifest.yaml`: Declarative metadata specifying the engine name, port, web URL, rule target, skill directory, catalogs, and mounts.
+1. `manifest.yaml`: Declarative metadata specifying the engine name, port, connection descriptor, rule target, skill directory, catalogs, and mounts.
 2. `install.sh`: An idempotent, multi-architecture (arm64/amd64) shell script that installs the engine binary into `/usr/local/bin/`.
 3. `entrypoint.sh`: Starts the engine daemon or web server, binding to `0.0.0.0`.
 
@@ -95,7 +95,9 @@ Every engine lives in `engines/<name>/` and implements three files:
 Engine manifests are validated against a JSON Schema (Draft 2020-12):
 - `name`: Must match `^[a-z0-9_-]+$` and strictly equal the parent directory name.
 - `port`: Integer between 1 and 65535 (the single source of truth for networking).
-- `web_url`: URI opened by the `agent-sandbox ui [engine]` command.
+- `connection`: How the engine's frontend reaches the container. Two types are supported (the manifest contract):
+  - `web` — a browser-facing URL opened by `agent-sandbox ui`: `{type: web, url: <uri>}` (used by `opencode` and `antigravity`).
+  - `ssh` — a desktop-app-driven SSH endpoint: `{type: ssh, user: <user>, host_alias: <alias>}` (used by `codex`, which has no web UI; the stock desktop app connects over SSH and spawns `codex app-server` inside the container).
 - `rules`: Target file path in container and host source files.
 - `skills`: Target skills directory and catalog files.
 - `mounts`: Host directory paths to bind-mount if present.
@@ -188,10 +190,21 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
    ```
 
 2. **Create `engines/<name>/manifest.yaml`**:
+   The `connection` field describes how the engine's frontend reaches the container.
+   Use the `web` variant for browser-driven engines, or the `ssh` variant for
+   desktop-app-driven engines (like `codex`, which has no web UI):
    ```yaml
    name: <name>
    port: <port>
-   web_url: http://127.0.0.1:<port>
+   # web variant (browser-driven engines, e.g. opencode/antigravity):
+   connection:
+     type: web
+     url: http://127.0.0.1:<port>
+   # ssh variant (desktop-app-driven engines, e.g. codex):
+   # connection:
+   #   type: ssh
+   #   user: developer
+   #   host_alias: agent-sandbox-<name>
    rules:
      target_file: ~/.config/<name>/AGENTS.md
      host_sources:
@@ -241,6 +254,7 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
 | `config/engine-manifest.schema.json` | JSON Schema (Draft 2020-12) defining engine manifest constraints. |
 | `engines/opencode/` | OpenCode engine adapter (`manifest.yaml`, `install.sh`, `entrypoint.sh`). |
 | `engines/antigravity/` | Google Antigravity engine adapter (`manifest.yaml`, `install.sh`, `entrypoint.sh`). |
+| `engines/codex/` | Codex engine adapter (SSH-remote, desktop-app-driven; `manifest.yaml`, `install.sh`, `entrypoint.sh` runs `sshd`). |
 | `Dockerfile.sandbox` | Multilingual Ubuntu 24.04 image dynamically executing engine installers. |
 | `config/compose.common.yaml` | Engine-agnostic docker compose service fragment merged into every generated engine service. |
 | `docker-compose.yml` | Generic compose project file (project name, empty services/volumes); engines are generated into `~/.agent-sandbox/docker-compose.override.yml`. |
@@ -259,15 +273,23 @@ To add support for a new agent engine (e.g. `claude-code` or `aider`):
 # Whitelist workspace
 agent-sandbox workspace add /path/to/project
 
-# Start an engine (e.g. opencode or antigravity)
+# Start an engine (e.g. opencode, antigravity, or codex)
 agent-sandbox start opencode
 
 # Start multiple engines concurrently
 agent-sandbox start opencode antigravity
 
-# Open Web UI in browser
+# Open Web UI in browser (web engines)
 agent-sandbox ui opencode
 agent-sandbox ui antigravity
+
+# Codex (desktop-remote): start, authenticate, and connect the desktop app
+agent-sandbox start codex
+agent-sandbox shell codex            # then: codex login --device-auth
+agent-sandbox ui codex               # configures SSH alias + opens codex:// deep link
+
+# Run a command inside a running engine container
+agent-sandbox shell opencode uname -a
 
 # View status
 agent-sandbox status
