@@ -43,3 +43,7 @@ class EngineAdapter(Protocol):
     def run_legacy_migrations(self) -> None:
         """Runs engine-owned legacy state migrations (generic hook, no-op by default)."""
         return None
+
+    def preflight_warnings(self, sandbox_dir: Path) -> tuple[str, ...]:
+        """Returns warnings surfaced before the engine starts. Empty by default."""
+        return ()
