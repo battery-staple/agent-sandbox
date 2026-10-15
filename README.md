@@ -1,6 +1,6 @@
 # Agent Sandbox: Multi-Agent Container Sandbox for macOS
 
-A high-performance container sandbox for autonomous AI coding agents (**OpenCode**, **Google Antigravity**, and extensible custom engines) using Docker on macOS. It enables agents to execute shell commands, compile code, and manage dependencies inside an isolated Linux container without risking host system files, credentials, or toolchain stability.
+A high-performance container sandbox for autonomous AI coding agents (**OpenCode**, **Google Antigravity**, **Codex**, and extensible custom engines) using Docker on macOS. It enables agents to execute shell commands, compile code, and manage dependencies inside an isolated Linux container without risking host system files, credentials, or toolchain stability.
 
 ---
 
@@ -17,7 +17,7 @@ Autonomous AI coding agents routinely need to execute arbitrary shell commands (
 | :--- | :--- | :--- |
 | **Command Execution** | Runs directly on macOS host with full user permissions | Confined to isolated Ubuntu 24.04 Linux container |
 | **Secret & System Isolation** | Full access to `~/.ssh`, `~/.aws`, Keychain, `/System` | Physically inaccessible; host files outside workspaces are isolated |
-| **Supported Engines** | Single engine tied to host | Pluggable multi-agent architecture (OpenCode, Antigravity, etc.) |
+| **Supported Engines** | Single engine tied to host | Pluggable multi-agent architecture (OpenCode, Antigravity, Codex, etc.) |
 | **File Editing Ergonomics** | Native macOS editors | Native macOS editors with <1ms VirtioFS live synchronization |
 | **Path Parity** | Host paths (`/Users/...`) | Exact 1:1 host path parity (`/Users/...` preserved in container) |
 | **macOS Native Tool Access** | Direct host binary access | Controlled access via HMAC-authenticated, policy-gated Host Bridge |
@@ -28,9 +28,10 @@ Autonomous AI coding agents routinely need to execute arbitrary shell commands (
 
 ## Architecture & How It Works
 
-Agent Sandbox operates with a decoupled, web-first architecture. Each agent engine runs inside an isolated container service profile and exposes its web interface over local loopback. Engine services are generated from `engines/<name>/manifest.yaml` plus the shared `config/compose.common.yaml` fragment; `docker-compose.yml` itself is fully generic and contains no engine-specific content.
+Agent Sandbox operates with a decoupled, pluggable architecture. Each agent engine runs inside an isolated container service profile. Web-driven engines (OpenCode, Antigravity) expose their web interface over local loopback; Codex has no web UI and is driven instead by the stock Codex/ChatGPT **desktop app** connecting into the container over SSH. Engine services are generated from `engines/<name>/manifest.yaml` plus the shared `config/compose.common.yaml` fragment; `docker-compose.yml` itself is fully generic and contains no engine-specific content.
 - **OpenCode**: Runs web server on port `4096` (`http://127.0.0.1:4096`).
 - **Antigravity**: Runs language server on port `58432` (`https://localhost:58432`).
+- **Codex**: Runs `sshd` on port `58434` (SSH alias `agent-sandbox-codex`); the desktop app connects over SSH and spawns `codex app-server` inside the container. There is no web UI.
 
 ```mermaid
 flowchart TB
@@ -155,6 +156,29 @@ Automated browser requests (Playwright, Puppeteer, CDP) are handled transparentl
 - **Container Headless Mode**: Runs fully isolated offscreen Chromium inside the container with `--no-sandbox`.
 - **Auto Mode (Default)**: Automatically uses host Chrome if the host bridge is running, and gracefully falls back to in-container Chromium if offline. Configurable via `browser_mode` in `~/.agent-sandbox/antigravity/config.yaml` (`auto`, `host`, `container`).
 
+### 5. Codex (Desktop-Remote)
+Unlike OpenCode and Antigravity, Codex ships no browser UI. The `codex` engine runs `sshd` inside the container, and the stock Codex/ChatGPT **desktop app** on macOS connects to it via Settings → Connections → SSH, spawning and driving `codex app-server` inside the container (the container remains the security boundary).
+
+- **Prerequisites**: The Codex/ChatGPT desktop app installed on macOS, with device-code sign-in enabled in ChatGPT **Settings → Security**.
+- **Start the engine**:
+  ```bash
+  agent-sandbox start codex
+  ```
+- **Authenticate inside the container** (container auth is independent of the desktop app):
+  ```bash
+  agent-sandbox shell codex
+  codex login --device-auth
+  ```
+- **Connect the desktop app**:
+  ```bash
+  agent-sandbox ui codex
+  ```
+  This configures the host SSH alias `agent-sandbox-codex` and opens the app via the `codex://settings/connections/ssh/add` deep link.
+- **One manual step**: choose your workspace folder in the app to finish setup.
+- **`~/.codex` is intentionally NOT shared**: the host `~/.codex` is never bind-mounted; container authentication is independent, and the container `$CODEX_HOME` lives on a per-engine named volume (`agent_home_codex`) — Unix sockets used by the app-server do not work over macOS shared mounts.
+
+**Fallback: WS attach (experimental, not implemented)** — an undocumented alternative would set `CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:<port>` to attach the app to a directly-exposed app-server over WebSocket instead of SSH. This is not implemented and not supported.
+
 ---
 
 ## Command Reference
@@ -166,7 +190,8 @@ Automated browser requests (Playwright, Puppeteer, CDP) are handled transparentl
 | `agent-sandbox restart <engine...>` | Restart one or more engines (others left running). |
 | `agent-sandbox build [engine...]` | Rebuild the sandbox container image after Dockerfile or installer changes. |
 | `agent-sandbox status` | Display status of available engines, containers, workspaces, and bridge. |
-| `agent-sandbox ui [engine]` | Open engine Web UI in desktop browser. |
+| `agent-sandbox ui [engine]` | Open engine UI (web browser for web engines; desktop-app SSH flow for codex). |
+| `agent-sandbox shell <engine> [command...]` | Open an interactive shell (or run a command) inside a running engine container. |
 | `agent-sandbox workspace add [path]` | Whitelist a workspace directory (current directory if omitted). |
 | `agent-sandbox workspace remove <path>` | Remove a workspace from the whitelist. |
 | `agent-sandbox workspace list` | List all whitelisted workspaces. |
