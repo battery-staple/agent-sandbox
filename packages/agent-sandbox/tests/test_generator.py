@@ -13,6 +13,7 @@ if PKG_SRC not in sys.path:
 
 from agent_sandbox.compose.generator import generate_compose_override
 from agent_sandbox.config.models import (
+    EngineConnectionConfig,
     EngineManifest,
     EngineRuleConfig,
     EngineSkillConfig,
@@ -62,7 +63,7 @@ class TestGenerator(unittest.TestCase):
         engine_opencode = EngineManifest(
             name="opencode",
             port=4096,
-            web_url="http://127.0.0.1:4096",
+            connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096"),
             rules=EngineRuleConfig(target_file="~/.config/opencode/AGENTS.md"),
             skills=EngineSkillConfig(target_dir="~/.config/opencode/skills"),
             mounts=("~/.config/opencode",),
@@ -71,7 +72,7 @@ class TestGenerator(unittest.TestCase):
         engine_anti = EngineManifest(
             name="antigravity",
             port=58432,
-            web_url="https://localhost:58432",
+            connection=EngineConnectionConfig(type="web", url="https://localhost:58432"),
             rules=EngineRuleConfig(target_file="~/.gemini/GEMINI.md"),
             skills=EngineSkillConfig(target_dir="/home/developer/.gemini/antigravity/builtin/skills"),
             mounts=("~/.gemini",),
@@ -148,7 +149,7 @@ class TestGenerator(unittest.TestCase):
         engine_anti = EngineManifest(
             name="antigravity",
             port=58432,
-            web_url="https://localhost:58432",
+            connection=EngineConnectionConfig(type="web", url="https://localhost:58432"),
             rules=EngineRuleConfig(target_file="~/.gemini/GEMINI.md"),
             skills=EngineSkillConfig(target_dir="/home/developer/.gemini/antigravity/builtin/skills"),
             mounts=("~/.gemini",),
@@ -156,7 +157,7 @@ class TestGenerator(unittest.TestCase):
         engine_opencode = EngineManifest(
             name="opencode",
             port=4096,
-            web_url="http://127.0.0.1:4096",
+            connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096"),
             rules=EngineRuleConfig(target_file="~/.config/opencode/AGENTS.md"),
             skills=EngineSkillConfig(target_dir="~/.config/opencode/skills"),
             mounts=("~/.config/opencode",),

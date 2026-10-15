@@ -7,7 +7,14 @@ from typing import Any, Mapping
 import yaml
 import jsonschema
 
-from .models import EngineManifest, EngineMountConfig, EngineRuleConfig, EngineSkillConfig, SandboxConfig
+from .models import (
+    EngineConnectionConfig,
+    EngineManifest,
+    EngineMountConfig,
+    EngineRuleConfig,
+    EngineSkillConfig,
+    SandboxConfig,
+)
 
 
 def validate_manifest_dict(data: Any, schema_path: str | None = None) -> None:
@@ -70,10 +77,31 @@ def load_engine_manifest(manifest_path: str, expected_dir_name: str | None = Non
 
     mounts = tuple(data.get("mounts", ()))
 
+    # Construct immutable EngineConnectionConfig
+    c_data = data.get("connection")
+    if not isinstance(c_data, dict):
+        raise ValueError(f"Engine manifest connection must be a mapping/object: {norm_path}")
+    conn_type = c_data.get("type")
+    if conn_type == "web":
+        url = c_data.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"Engine manifest web connection requires a 'url' string: {norm_path}")
+        connection = EngineConnectionConfig(type="web", url=url)
+    elif conn_type == "ssh":
+        user = c_data.get("user")
+        host_alias = c_data.get("host_alias")
+        if not isinstance(user, str) or not user or not isinstance(host_alias, str) or not host_alias:
+            raise ValueError(
+                f"Engine manifest ssh connection requires 'user' and 'host_alias' strings: {norm_path}"
+            )
+        connection = EngineConnectionConfig(type="ssh", user=user, host_alias=host_alias)
+    else:
+        raise ValueError(f"Engine manifest connection has unsupported type {conn_type!r}: {norm_path}")
+
     return EngineManifest(
         name=data["name"],
         port=int(data["port"]),
-        web_url=data["web_url"],
+        connection=connection,
         rules=rule_cfg,
         skills=skill_cfg,
         mounts=mounts,

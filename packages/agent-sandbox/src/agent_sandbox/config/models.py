@@ -25,10 +25,20 @@ class EngineMountConfig:
 
 
 @dataclass(frozen=True)
+class EngineConnectionConfig:
+    """How clients connect to an engine: a web URL or an SSH endpoint."""
+
+    type: str
+    url: str | None = None
+    user: str | None = None
+    host_alias: str | None = None
+
+
+@dataclass(frozen=True)
 class EngineManifest:
     name: str
     port: int
-    web_url: str
+    connection: EngineConnectionConfig
     rules: EngineRuleConfig | None = None
     skills: EngineSkillConfig | None = None
     mounts: tuple[str, ...] = ()

@@ -83,7 +83,7 @@ class TestAntigravityAdapter(unittest.TestCase):
 
 class TestRuntimes(unittest.TestCase):
     def test_load_all_and_filter_without_reparsing(self):
-        from agent_sandbox.config.models import EngineManifest
+        from agent_sandbox.config.models import EngineConnectionConfig, EngineManifest
 
         with tempfile.TemporaryDirectory() as d:
             sb = Path(d) / "sandbox"
@@ -92,8 +92,16 @@ class TestRuntimes(unittest.TestCase):
                 "server:\n  username: alice\n  password: pw\n", encoding="utf-8"
             )
             manifests = [
-                EngineManifest(name="opencode", port=4096, web_url="http://127.0.0.1:4096"),
-                EngineManifest(name="antigravity", port=58432, web_url="https://localhost:58432"),
+                EngineManifest(
+                    name="opencode",
+                    port=4096,
+                    connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096"),
+                ),
+                EngineManifest(
+                    name="antigravity",
+                    port=58432,
+                    connection=EngineConnectionConfig(type="web", url="https://localhost:58432"),
+                ),
             ]
             all_rts = load_all_runtimes(manifests, sb)
             self.assertEqual(len(all_rts), 2)

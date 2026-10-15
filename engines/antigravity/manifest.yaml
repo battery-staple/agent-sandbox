@@ -1,6 +1,8 @@
 name: antigravity
 port: 58432
-web_url: https://localhost:58432
+connection:
+  type: web
+  url: https://localhost:58432
 rules:
   target_file: ~/.gemini/GEMINI.md
   host_sources:

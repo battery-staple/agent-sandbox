@@ -35,7 +35,8 @@ class TestLoader(unittest.TestCase):
         manifest_opencode = load_engine_manifest(opencode_path, schema_path=self.schema_path)
         self.assertEqual(manifest_opencode.name, "opencode")
         self.assertEqual(manifest_opencode.port, 4096)
-        self.assertEqual(manifest_opencode.web_url, "http://127.0.0.1:4096")
+        self.assertEqual(manifest_opencode.connection.type, "web")
+        self.assertEqual(manifest_opencode.connection.url, "http://127.0.0.1:4096")
         self.assertIsNotNone(manifest_opencode.rules)
         self.assertEqual(manifest_opencode.rules.target_file, "~/.config/opencode/AGENTS.md")
 
@@ -43,44 +44,81 @@ class TestLoader(unittest.TestCase):
         manifest_anti = load_engine_manifest(antigravity_path, schema_path=self.schema_path)
         self.assertEqual(manifest_anti.name, "antigravity")
         self.assertEqual(manifest_anti.port, 58432)
-        self.assertEqual(manifest_anti.web_url, "https://localhost:58432")
+        self.assertEqual(manifest_anti.connection.type, "web")
+        self.assertEqual(manifest_anti.connection.url, "https://localhost:58432")
         self.assertIsNotNone(manifest_anti.skills)
         self.assertIn("~/.gemini/config/skills.json", manifest_anti.skills.catalogs)
 
     def test_validation_missing_required(self):
         with self.assertRaises(ValueError) as ctx:
             validate_manifest_dict({"name": "test", "port": 1234})
-        self.assertIn("web_url", str(ctx.exception))
+        self.assertIn("connection", str(ctx.exception))
 
     def test_validation_invalid_name(self):
         with self.assertRaises(ValueError) as ctx:
-            validate_manifest_dict({"name": "Test Engine!", "port": 1234, "web_url": "http://localhost"})
+            validate_manifest_dict(
+                {"name": "Test Engine!", "port": 1234, "connection": {"type": "web", "url": "http://localhost"}}
+            )
         self.assertIn("does not match", str(ctx.exception))
 
     def test_validation_invalid_port(self):
         with self.assertRaises(ValueError):
-            validate_manifest_dict({"name": "test", "port": 70000, "web_url": "http://localhost"})
+            validate_manifest_dict(
+                {"name": "test", "port": 70000, "connection": {"type": "web", "url": "http://localhost"}}
+            )
         with self.assertRaises(ValueError):
-            validate_manifest_dict({"name": "test", "port": -5, "web_url": "http://localhost"})
+            validate_manifest_dict(
+                {"name": "test", "port": -5, "connection": {"type": "web", "url": "http://localhost"}}
+            )
         with self.assertRaises(ValueError):
-            validate_manifest_dict({"name": "test", "port": True, "web_url": "http://localhost"})
+            validate_manifest_dict(
+                {"name": "test", "port": True, "connection": {"type": "web", "url": "http://localhost"}}
+            )
 
     def test_validation_extra_properties(self):
         with self.assertRaises(ValueError) as ctx:
             validate_manifest_dict({
                 "name": "test",
                 "port": 1234,
-                "web_url": "http://localhost",
+                "connection": {"type": "web", "url": "http://localhost"},
                 "unknown_prop": "error"
             })
         self.assertIn("was unexpected", str(ctx.exception))
+
+    def test_validation_connection_web_valid(self):
+        validate_manifest_dict(
+            {"name": "test", "port": 1234, "connection": {"type": "web", "url": "http://localhost:4096"}}
+        )
+
+    def test_validation_connection_ssh_valid(self):
+        validate_manifest_dict(
+            {
+                "name": "test",
+                "port": 1234,
+                "connection": {"type": "ssh", "user": "developer", "host_alias": "agent-sandbox-test"},
+            }
+        )
+
+    def test_validation_connection_unknown_type_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_manifest_dict(
+                {"name": "test", "port": 1234, "connection": {"type": "websocket", "url": "http://localhost"}}
+            )
+        self.assertIn("connection", str(ctx.exception))
+
+    def test_validation_connection_web_missing_url_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_manifest_dict({"name": "test", "port": 1234, "connection": {"type": "web"}})
+        self.assertIn("Schema validation failed", str(ctx.exception))
 
     def test_parent_dir_mismatch(self):
         engine_dir = os.path.join(self.temp_dir, "dir_foo")
         os.makedirs(engine_dir)
         manifest_file = os.path.join(engine_dir, "manifest.yaml")
         with open(manifest_file, "w") as f:
-            yaml.safe_dump({"name": "name_bar", "port": 1234, "web_url": "http://localhost"}, f)
+            yaml.safe_dump(
+                {"name": "name_bar", "port": 1234, "connection": {"type": "web", "url": "http://localhost"}}, f
+            )
 
         with self.assertRaises(ValueError) as ctx:
             load_engine_manifest(manifest_file, schema_path=self.schema_path)
