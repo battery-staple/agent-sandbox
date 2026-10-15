@@ -382,7 +382,7 @@ class SandboxCLI:
         if code == 0:
             print("[Sandbox] Containers started successfully:")
             for e in active:
-                print(f"  - [{e.name.upper()}] Web UI: {e.web_url} (Port {e.port})")
+                print(f"  - [{e.name.upper()}] Web UI: {e.connection.url} (Port {e.port})")
         return code
 
     def _ensure_services_in_override(self, engines: Sequence[EngineManifest]) -> None:
@@ -537,7 +537,7 @@ class SandboxCLI:
         for runtime in all_runtimes:
             manifest = runtime.manifest
             state = "RUNNING" if manifest.name in running_names else "STOPPED"
-            print(f"  - {manifest.name:<14} [{state:<7}] URL: {manifest.web_url}")
+            print(f"  - {manifest.name:<14} [{state:<7}] URL: {manifest.connection.url}")
             for line in runtime.adapter.status_lines(runtime.config):
                 print(f"      {line}")
 
@@ -593,7 +593,7 @@ class SandboxCLI:
             print(f"[Sandbox] Engine '{target_engine.name}' is not running. Starting...")
             self.cmd_start([target_engine.name])
 
-        url = target_engine.web_url
+        url = target_engine.connection.url
         print(f"[Sandbox] Opening {target_engine.name} Web UI ({url})...")
         runtime = get_runtime(all_runtimes, target_engine.name)
         for line in runtime.adapter.status_lines(runtime.config):

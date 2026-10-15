@@ -9,6 +9,7 @@ if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
 from agent_sandbox.config.models import (
+    EngineConnectionConfig,
     EngineManifest,
     EngineRuleConfig,
     EngineSkillConfig,
@@ -35,7 +36,7 @@ class TestModels(unittest.TestCase):
         manifest = EngineManifest(
             name="opencode",
             port=4096,
-            web_url="http://127.0.0.1:4096",
+            connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096"),
             rules=EngineRuleConfig(target_file="AGENTS.md"),
             skills=EngineSkillConfig(target_dir="skills"),
             mounts=("~/.config/opencode",),
@@ -43,10 +44,20 @@ class TestModels(unittest.TestCase):
         )
         self.assertEqual(manifest.name, "opencode")
         self.assertEqual(manifest.port, 4096)
-        self.assertEqual(manifest.web_url, "http://127.0.0.1:4096")
+        self.assertEqual(manifest.connection.type, "web")
+        self.assertEqual(manifest.connection.url, "http://127.0.0.1:4096")
         self.assertEqual(manifest.mounts, ("~/.config/opencode",))
         with self.assertRaises(FrozenInstanceError):
             manifest.port = 8080
+
+    def test_engine_connection_config_immutability(self):
+        cfg = EngineConnectionConfig(type="web", url="http://127.0.0.1:4096")
+        self.assertEqual(cfg.type, "web")
+        self.assertEqual(cfg.url, "http://127.0.0.1:4096")
+        self.assertIsNone(cfg.user)
+        self.assertIsNone(cfg.host_alias)
+        with self.assertRaises(FrozenInstanceError):
+            cfg.url = "http://localhost"
 
     def test_sandbox_config_defaults(self):
         cfg = SandboxConfig()

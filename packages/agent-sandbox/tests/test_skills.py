@@ -10,7 +10,7 @@ PKG_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
-from agent_sandbox.config.models import EngineManifest, EngineSkillConfig
+from agent_sandbox.config.models import EngineConnectionConfig, EngineManifest, EngineSkillConfig
 from agent_sandbox.skills.catalog import CatalogSkillResolver
 from agent_sandbox.skills.directory import DirectorySkillResolver
 
@@ -77,7 +77,7 @@ class TestSkills(unittest.TestCase):
         engine = EngineManifest(
             name="test",
             port=1234,
-            web_url="http://localhost",
+            connection=EngineConnectionConfig(type="web", url="http://localhost"),
             skills=EngineSkillConfig(target_dir="skills", catalogs=("skills.json",)),
         )
 

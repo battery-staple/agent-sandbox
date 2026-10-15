@@ -10,7 +10,7 @@ if PKG_SRC not in sys.path:
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from agent_sandbox.registry.engines import EngineRegistry, discover_engines
-from agent_sandbox.config.models import EngineManifest
+from agent_sandbox.config.models import EngineConnectionConfig, EngineManifest
 
 
 class TestRegistry(unittest.TestCase):
@@ -34,7 +34,7 @@ class TestRegistry(unittest.TestCase):
 
     def test_duplicate_registration_raises(self):
         registry = EngineRegistry()
-        m = EngineManifest(name="test", port=1000, web_url="http://test")
+        m = EngineManifest(name="test", port=1000, connection=EngineConnectionConfig(type="web", url="http://test"))
         registry.register(m)
         with self.assertRaises(ValueError):
             registry.register(m)

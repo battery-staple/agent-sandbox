@@ -10,7 +10,7 @@ if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
 from agent_sandbox.compose.rules import compile_rules_for_engine
-from agent_sandbox.config.models import EngineManifest, EngineRuleConfig
+from agent_sandbox.config.models import EngineConnectionConfig, EngineManifest, EngineRuleConfig
 
 
 class TestRules(unittest.TestCase):
@@ -55,7 +55,7 @@ class TestRules(unittest.TestCase):
         engine = EngineManifest(
             name="opencode",
             port=4096,
-            web_url="http://localhost:4096",
+            connection=EngineConnectionConfig(type="web", url="http://localhost:4096"),
             rules=EngineRuleConfig(
                 target_file="~/.config/opencode/AGENTS.md",
                 host_sources=(self.host_rule,),

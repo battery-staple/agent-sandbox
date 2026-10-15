@@ -7,7 +7,7 @@
   "required": [
     "name",
     "port",
-    "web_url"
+    "connection"
   ],
   "properties": {
     "name": {
@@ -21,10 +21,47 @@
       "maximum": 65535,
       "description": "The primary network port exposed by this engine."
     },
-    "web_url": {
-      "type": "string",
-      "format": "uri",
-      "description": "Web entrypoint URL launched by the 'ui' command."
+    "connection": {
+      "description": "How clients connect to this engine's primary interface.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "url"
+          ],
+          "properties": {
+            "type": {
+              "const": "web"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "user",
+            "host_alias"
+          ],
+          "properties": {
+            "type": {
+              "const": "ssh"
+            },
+            "user": {
+              "type": "string"
+            },
+            "host_alias": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "rules": {
       "type": "object",

@@ -10,7 +10,7 @@ if PKG_SRC not in sys.path:
     sys.path.insert(0, PKG_SRC)
 
 from agent_sandbox.cli import SandboxCLI, app, main
-from agent_sandbox.config.models import EngineManifest
+from agent_sandbox.config.models import EngineConnectionConfig, EngineManifest
 from agent_sandbox.framework import CLIApp, argument, option
 
 
@@ -226,8 +226,8 @@ class TestSandboxCLICompletions(unittest.TestCase):
         self.env_patcher = mock.patch.dict(os.environ, {"AGENT_SANDBOX_REPO_ROOT": self.tmpdir})
         self.env_patcher.start()
         self.cli = SandboxCLI(repo_root=self.tmpdir, sandbox_dir=os.path.join(self.tmpdir, "sandbox"))
-        self.cli.registry.register(EngineManifest(name="opencode", port=4096, web_url="http://127.0.0.1:4096"))
-        self.cli.registry.register(EngineManifest(name="antigravity", port=58432, web_url="https://localhost:58432"))
+        self.cli.registry.register(EngineManifest(name="opencode", port=4096, connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096")))
+        self.cli.registry.register(EngineManifest(name="antigravity", port=58432, connection=EngineConnectionConfig(type="web", url="https://localhost:58432")))
 
     def tearDown(self):
         self.env_patcher.stop()
