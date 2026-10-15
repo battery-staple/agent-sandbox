@@ -1,0 +1,13 @@
+name: codex
+port: 58434
+connection:
+  type: ssh
+  user: developer
+  host_alias: agent-sandbox-codex
+rules:
+  target_file: ~/.codex/AGENTS.md
+  host_sources:
+    - ~/.codex/AGENTS.md
+skills:
+  target_dir: ~/.agents/skills
+mounts: []

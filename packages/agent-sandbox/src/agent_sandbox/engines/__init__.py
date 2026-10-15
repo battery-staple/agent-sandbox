@@ -13,6 +13,7 @@ from typing import Sequence
 from ..config.models import EngineManifest
 from .antigravity import AntigravityAdapter
 from .base import EngineAdapter
+from .codex import CodexAdapter
 from .opencode import OpencodeAdapter
 
 
@@ -26,6 +27,7 @@ class EngineRuntime:
 _ADAPTERS: dict[str, EngineAdapter] = {
     OpencodeAdapter.name: OpencodeAdapter(),
     AntigravityAdapter.name: AntigravityAdapter(),
+    CodexAdapter.name: CodexAdapter(),
 }
 
 

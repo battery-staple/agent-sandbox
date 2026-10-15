@@ -6,6 +6,8 @@ x-sandbox-common:
   build:
     context: .
     dockerfile: Dockerfile.sandbox
+    args:
+      CODEX_VERSION: ${CODEX_VERSION:-0.162.1}
   restart: unless-stopped
   shm_size: '2gb' # Expanded shared memory for headless Chromium browser automation
   cap_drop:
@@ -16,6 +18,14 @@ x-sandbox-common:
     - SETGID
     - DAC_OVERRIDE
     - NET_BIND_SERVICE
+    # sshd (codex engine) needs these beyond the above: its privilege-separation
+    # child chroots (SYS_CHROOT); Ubuntu/Debian's build writes a Linux audit
+    # record at pty-req (AUDIT_WRITE) — fatal if missing; the root monitor
+    # signals non-root children (KILL); FOWNER covers the pty chmod path.
+    - SYS_CHROOT
+    - AUDIT_WRITE
+    - KILL
+    - FOWNER
   deploy:
     resources:
       limits:

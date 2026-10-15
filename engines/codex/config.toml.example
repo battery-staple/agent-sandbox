@@ -1,0 +1,4 @@
+# Codex engine config (container-local). Seeded to ~/.codex/config.toml on first start.
+cli_auth_credentials_store = "file"
+sandbox_mode    = "danger-full-access"
+approval_policy = "on-request"
