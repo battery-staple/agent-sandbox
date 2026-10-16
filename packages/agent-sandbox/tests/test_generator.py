@@ -38,7 +38,6 @@ class TestGenerator(unittest.TestCase):
                 "build": {
                     "context": ".",
                     "dockerfile": "Dockerfile.sandbox",
-                    "args": {"USER_UID": "${HOST_UID:-1000}", "USER_GID": "${HOST_GID:-1000}"},
                 },
                 "restart": "unless-stopped",
                 "shm_size": "2gb",
@@ -106,6 +105,8 @@ class TestGenerator(unittest.TestCase):
             self.assertEqual(svc["cap_drop"], ["ALL"])
             self.assertEqual(svc["build"]["dockerfile"], "Dockerfile.sandbox")
             self.assertEqual(svc["build"]["context"], os.path.abspath(self.repo_root))
+            # No build-time host-UID remap: the image user is fixed at UID 1000.
+            self.assertNotIn("args", svc["build"])
             self.assertIn("127.0.0.1:3000-3005:3000-3005", svc["ports"])
             self.assertTrue(any(env.startswith("HOST_EXEC_HOST=") for env in svc["environment"]))
 
