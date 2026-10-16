@@ -159,23 +159,27 @@ RUN chmod +x /etc/sandbox/engines/*/install.sh \
 # ------------------------------------------------------------------------------
 # 7. Developer User & Permission Setup
 # ------------------------------------------------------------------------------
-# Configure a dedicated non-root developer user with matching host UID/GID to
-# ensure seamless file ownership over bind-mounted workspace files.
-#
-# Note on macOS GID 20: On macOS, standard users belong to group 'staff' (GID 20).
-# On Ubuntu, GID 20 is the existing system group 'dialout'. The check below avoids
-# collision errors when GID 20 is passed from macOS.
+# Deterministic image user at a fixed UID/GID (1000), rather than remapped to
+# the host UID at build time. ubuntu:24.04 ships a default `ubuntu` account at
+# 1000, so we replace it with `developer`. The container starts as root, the
+# entrypoint root-init phase repairs ownership of the persistent home volume,
+# and each engine entrypoint then drops privileges to this user (sshd-based
+# engines stay root). The account is given a real password hash because sshd
+# with `UsePAM no` refuses accounts whose shadow entry is locked (`!`).
 ARG USERNAME=developer
-ARG USER_UID=1000
-ARG USER_GID=1000
-
-RUN if getent group $USER_GID >/dev/null 2>&1; then \
-        useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash $USERNAME; \
+RUN set -eu; \
+    userdel ubuntu 2>/dev/null || true; \
+    groupdel ubuntu 2>/dev/null || true; \
+    rm -rf /home/ubuntu; \
+    if getent group 1000 >/dev/null; then \
+        groupmod -n "$USERNAME" "$(getent group 1000 | cut -d: -f1)"; \
     else \
-        groupadd --gid $USER_GID $USERNAME && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash $USERNAME; \
-    fi \
-    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+        groupadd --gid 1000 "$USERNAME"; \
+    fi; \
+    useradd --uid 1000 --gid 1000 -m -s /bin/bash "$USERNAME"; \
+    echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME; \
+    chmod 0440 /etc/sudoers.d/$USERNAME; \
+    echo "$USERNAME:$(head -c 24 /dev/urandom | base64)" | chpasswd
 
 # ------------------------------------------------------------------------------
 # 8. Persistent Directories & Ownership
@@ -196,7 +200,7 @@ RUN mkdir -p \
     /var/run/host-exec \
     /etc/sandbox/customizations \
     /opt/playwright-browsers \
-    && chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME /var/run/host-exec /etc/sandbox /opt/playwright-browsers
+    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME /var/run/host-exec /etc/sandbox /opt/playwright-browsers
 
 # ------------------------------------------------------------------------------
 # 9. Environment Variables for Developer User
@@ -231,7 +235,12 @@ RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh /usr/local/bin/host-exec /usr/
 # ------------------------------------------------------------------------------
 # 11. Runtime Execution Context
 # ------------------------------------------------------------------------------
+# The container starts as root so the entrypoint root-init phase can repair
+# ownership of the persistent home volume; engine entrypoints drop privileges
+# to the developer user via setpriv (sshd-based engines stay root). HOME is
+# pinned so both the root-init phase and the guests resolve $HOME to the
+# developer home regardless of the effective UID.
 WORKDIR /workspace
-USER $USERNAME
+ENV HOME="/home/developer"
 
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]
