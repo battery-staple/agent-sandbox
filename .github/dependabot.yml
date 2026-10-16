@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Keep actions/checkout, actions/setup-python, etc. current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # The only Python runtime dependencies (pyproject.toml). Engines install
+  # further packages at image build time (npm) but there is no manifest in
+  # the repo for Dependabot to track, so those updates stay manual.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Dockerfile.sandbox base image (ubuntu:24.04).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
