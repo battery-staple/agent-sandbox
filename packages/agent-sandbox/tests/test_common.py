@@ -26,7 +26,6 @@ def _valid_fragment():
             "build": {
                 "context": ".",
                 "dockerfile": "Dockerfile.sandbox",
-                "args": {"USER_UID": "${HOST_UID:-1000}"},
             },
             "restart": "unless-stopped",
             "shm_size": "2gb",
@@ -51,8 +50,20 @@ class TestParseComposeCommon(unittest.TestCase):
         self.assertEqual(cfg.extra_hosts, ("host.docker.internal:host-gateway",))
         self.assertEqual(cfg.ports, ("127.0.0.1:8080:8080",))
         self.assertEqual(cfg.environment, ("HOST_EXEC_PORT=58433",))
-        self.assertEqual(cfg.build, ComposeBuildConfig(context=".", dockerfile="Dockerfile.sandbox", args={"USER_UID": "${HOST_UID:-1000}"}))
+        self.assertEqual(cfg.build, ComposeBuildConfig(context=".", dockerfile="Dockerfile.sandbox"))
         self.assertEqual(cfg.resources, ComposeResourceConfig(cpus="4.0", memory="8GB", pids=1024))
+
+    def test_parses_and_serializes_build_args(self):
+        # Build args are no longer used for host-UID remapping, but arbitrary
+        # args must still parse and round-trip into the service fragment.
+        data = _valid_fragment()
+        data["x-sandbox-common"]["build"]["args"] = {"OPENCODE_VERSION": "latest"}
+        cfg = parse_compose_common(data, source="test.yaml")
+        self.assertEqual(cfg.build.args, {"OPENCODE_VERSION": "latest"})
+        fragment = cfg.as_service_fragment(build_context="/abs/repo")
+        self.assertEqual(fragment["build"]["args"], {"OPENCODE_VERSION": "latest"})
+        self.assertEqual(fragment["build"]["context"], "/abs/repo")
+        self.assertEqual(fragment["build"]["dockerfile"], "Dockerfile.sandbox")
 
     def test_fails_fast_on_missing_top_level_key(self):
         data = _valid_fragment()
