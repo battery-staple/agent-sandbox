@@ -385,6 +385,18 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("monospacedSystemFontOfSize:12.0", script)
         self.assertIn("theAlert's setAccessoryView:scrollView", script)
 
+        # Verify Floating HUD window behavior configurations
+        self.assertIn("isMainThread()", script)
+        self.assertIn("performSelectorOnMainThread:\"showAlert:\"", script)
+        self.assertIn("NSStatusWindowLevel", script)
+        self.assertIn("setCollectionBehavior:259", script)
+        self.assertIn("setHidesOnDeactivate:false", script)
+        self.assertIn("mouseLocation()", script)
+        self.assertIn("NSBeep()", script)
+        self.assertIn("orderFrontRegardless()", script)
+        self.assertIn("denyBtn's setKeyEquivalent:(character id 27)", script)
+        self.assertIn("approveBtn's setKeyEquivalent:(character id 13)", script)
+
         # Verify arguments passed cleanly via argv
         self.assertEqual(cmd_arg, "git push origin main")
         self.assertIn("Working Directory: /Users/example/project", prompt_arg)
