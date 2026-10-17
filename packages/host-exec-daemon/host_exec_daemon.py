@@ -314,50 +314,143 @@ use framework "Foundation"
 use framework "AppKit"
 use scripting additions
 
+property modalResult : "Deny"
+
 on run argv
+    if not (current application's NSThread's isMainThread()) as boolean then
+        my performSelectorOnMainThread:"showAlert:" withObject:argv waitUntilDone:true
+    else
+        my showAlert(argv)
+    end if
+    return modalResult
+end run
+
+on showAlert(argv)
     set cmd_display to item 1 of argv
     set prompt_text to item 2 of argv
+
+    try
+        set curApp to current application's NSApplication's sharedApplication()
+        curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyRegular)
+        curApp's activateIgnoringOtherApps:true
+    end try
 
     set theAlert to current application's NSAlert's alloc()'s init()
     theAlert's setMessageText:"Agent Sandbox Host Execution Request"
     theAlert's setInformativeText:prompt_text
-    theAlert's setAlertStyle:2
+    theAlert's setAlertStyle:1
 
-    theAlert's addButtonWithTitle:"Deny"
-    theAlert's addButtonWithTitle:"Approve"
+    set denyBtn to theAlert's addButtonWithTitle:"Deny"
+    set approveBtn to theAlert's addButtonWithTitle:"Approve"
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    try
+        denyBtn's setKeyEquivalent:(character id 27)
+    end try
+    try
+        approveBtn's setKeyEquivalent:(character id 13)
+    end try
+
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
     scrollView's setBorderType:2
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
     textView's setDrawsBackground:true
-    textView's setTextContainerInset:{width:6, height:6}
-    textView's textContainer()'s setWidthTracksTextView:true
+    try
+        textView's setTextContainerInset:{8, 8}
+    end try
 
     try
         set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
     on error
-        set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+        try
+            set monoFont to current application's NSFont's fontWithName:"Menlo" |size|:12.0
+        on error
+            set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+        end try
     end try
     textView's setFont:monoFont
 
     scrollView's setDocumentView:textView
     theAlert's setAccessoryView:scrollView
 
-    current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
-    set modalResult to theAlert's runModal()
-    if modalResult = 1001 then
-        return "Approve"
+    set alertWin to theAlert's |window|()
+
+    -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
+    try
+        alertWin's setLevel:(current application's NSStatusWindowLevel)
+    on error
+        try
+            alertWin's setLevel:25
+        end try
+    end try
+
+    -- Collection Behavior: CanJoinAllSpaces (1) + MoveToActiveSpace (2) + FullScreenAuxiliary (256) = 259
+    try
+        alertWin's setCollectionBehavior:259
+    end try
+
+    try
+        alertWin's setHidesOnDeactivate:false
+    end try
+
+    -- Position at top-right of active screen (screen with mouse cursor)
+    try
+        set mouseLoc to current application's NSEvent's mouseLocation()
+        set allScreens to current application's NSScreen's screens()
+        set targetScreen to item 1 of allScreens
+        set mouseX to mouseLoc's x
+        set mouseY to mouseLoc's y
+
+        repeat with aScreen in allScreens
+            set sFrame to aScreen's frame()
+            set sx to item 1 of item 1 of sFrame
+            set sy to item 2 of item 1 of sFrame
+            set sw to item 1 of item 2 of sFrame
+            set sh to item 2 of item 2 of sFrame
+            if mouseX >= sx and mouseX <= (sx + sw) and mouseY >= sy and mouseY <= (sy + sh) then
+                set targetScreen to aScreen
+                exit repeat
+            end if
+        end repeat
+
+        set vFrame to targetScreen's visibleFrame()
+        set vx to item 1 of item 1 of vFrame
+        set vy to item 2 of item 1 of vFrame
+        set vw to item 1 of item 2 of vFrame
+        set vh to item 2 of item 2 of vFrame
+
+        theAlert's layout()
+        set winFrame to alertWin's frame()
+        set winW to item 1 of item 2 of winFrame
+        set winH to item 2 of item 2 of winFrame
+
+        set posX to vx + vw - winW - 24
+        set posY to vy + vh - winH - 12
+        alertWin's setFrameOrigin:{posX, posY}
+    end try
+
+    -- Play alert chime
+    try
+        current application's NSBeep()
+    end try
+
+    try
+        alertWin's orderFrontRegardless()
+    end try
+
+    set modalRes to theAlert's runModal()
+    if modalRes = 1001 then
+        set modalResult to "Approve"
     else
-        return "Deny"
+        set modalResult to "Deny"
     end if
-end run
+end showAlert
 """
 
 
@@ -397,6 +490,7 @@ async def prompt_user_approval_async(
     prompt_text = "\n\n".join(prompt_parts)
 
     # 1. Primary: Native Cocoa NSAlert with monospaced, read-only NSTextView codeblock
+    stderr_text = ""
     try:
         proc = await asyncio.create_subprocess_exec(
             "osascript", "-e", COCOA_DIALOG_SCRIPT, cmd_display, prompt_text,
@@ -405,20 +499,25 @@ async def prompt_user_approval_async(
         )
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
         if proc.returncode == 0 and stdout_text in ("Approve", "Deny"):
             return stdout_text == "Approve"
 
         logging.warning(
             "Cocoa alert returned code %d (stderr: %s); falling back to display dialog",
             proc.returncode,
-            stderr_bytes.decode("utf-8", errors="replace").strip(),
+            stderr_text,
         )
     except Exception as e:
+        stderr_text = str(e)
         logging.warning("Cocoa alert failed: %s; falling back to display dialog", e)
 
     # 2. Fallback: Standard AppleScript dialog
     try:
         escaped_prompt = prompt_text.replace("\\", "\\\\").replace('"', '\\"')
+        if stderr_text:
+            cleaned_err = stderr_text.replace("\\", "\\\\").replace('"', '\\"')
+            escaped_prompt += f"\\n\\n[Cocoa Alert Error: {cleaned_err}]"
         escaped_cmd = cmd_display.replace("\\", "\\\\").replace('"', '\\"')
         fallback_script = (
             f'display dialog "{escaped_prompt}" '
