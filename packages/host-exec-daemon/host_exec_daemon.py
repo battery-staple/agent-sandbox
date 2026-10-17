@@ -319,12 +319,12 @@ on run argv
     if not (current application's NSThread's isMainThread()) as boolean then
         my performSelectorOnMainThread:"showAlert:" withObject:argv waitUntilDone:true
     else
-        my showAlert:argv
+        my showAlert(argv)
     end if
     return modalResult
 end run
 
-on showAlert:argv
+on showAlert(argv)
     set cmd_display to item 1 of argv
     set prompt_text to item 2 of argv
 
@@ -445,11 +445,11 @@ on showAlert:argv
 
     set modalRes to theAlert's runModal()
     if modalRes = 1001 then
-        set script:modalResult to "Approve"
+        set my modalResult to "Approve"
     else
-        set script:modalResult to "Deny"
+        set my modalResult to "Deny"
     end if
-end showAlert:
+end showAlert
 """
 
 
@@ -486,6 +486,7 @@ async def prompt_user_approval_async(
     prompt_text = "\n\n".join(prompt_parts)
 
     # 1. Primary: Native Cocoa NSAlert with monospaced, read-only NSTextView codeblock
+    stderr_text = ""
     try:
         proc = await asyncio.create_subprocess_exec(
             "osascript", "-e", COCOA_DIALOG_SCRIPT, cmd_display, prompt_text,
@@ -494,20 +495,24 @@ async def prompt_user_approval_async(
         )
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
         if proc.returncode == 0 and stdout_text in ("Approve", "Deny"):
             return stdout_text == "Approve"
 
         logging.warning(
             "Cocoa alert returned code %d (stderr: %s); falling back to display dialog",
             proc.returncode,
-            stderr_bytes.decode("utf-8", errors="replace").strip(),
+            stderr_text,
         )
     except Exception as e:
+        stderr_text = str(e)
         logging.warning("Cocoa alert failed: %s; falling back to display dialog", e)
 
     # 2. Fallback: Standard AppleScript dialog
     try:
         escaped_prompt = prompt_text.replace("\\", "\\\\").replace('"', '\\"')
+        if stderr_text:
+            escaped_prompt += f"\\n\\n[Cocoa Alert Error: {stderr_text.replace('\\', '\\\\').replace('\"', '\\\"')}]"
         escaped_cmd = cmd_display.replace("\\", "\\\\").replace('"', '\\"')
         fallback_script = (
             f'display dialog "{escaped_prompt}" '
