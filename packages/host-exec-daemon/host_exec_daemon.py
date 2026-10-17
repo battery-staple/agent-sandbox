@@ -145,11 +145,12 @@ def get_command_description(name: str, policy: Dict[str, Any]) -> str:
         return str(policy["description"])
     bin_path = policy.get("binary_path", "")
     bin_name = os.path.basename(bin_path) if bin_path else name
-    regex = policy.get("allowed_args_regex", ".*")
     if name != bin_name:
         desc = f"Run '{bin_path}' via alias '{name}'"
     else:
         desc = f"Execute host binary '{bin_path}'"
+
+    regex = policy.get("auto_args_regex") or policy.get("approval_args_regex") or ".*"
     if regex not in [".*", "^.*$", ""]:
         clean_regex = regex.lstrip("^").rstrip("$")
         desc += f" (allowed args: {clean_regex})"
@@ -367,6 +368,7 @@ async def prompt_user_approval_async(
     traj_id: str = "",
     cwd: str = "",
     container_cwd: str = "",
+    note: str = "",
 ) -> bool:
     """Prompt user for confirmation, showing both working directories.
 
@@ -375,6 +377,8 @@ async def prompt_user_approval_async(
     """
     cmd_display = shlex.join([command_name] + args) if isinstance(args, list) else f"{command_name} {args}"
     context_lines = []
+    if note:
+        context_lines.append(f"Note: {note}")
     if container_cwd:
         context_lines.append(f"In-Container Directory: {container_cwd}")
     if cwd:
@@ -580,12 +584,15 @@ class HostExecServer:
                 logging.info("%s Handled introspection capabilities request (__list__)", prefix)
                 commands_summary = {}
                 for c_name, policy in whitelist.get("allowed_commands", {}).items():
-                    commands_summary[c_name] = {
+                    cmd_info = {
                         "binary_path": policy.get("binary_path", ""),
-                        "allowed_args_regex": policy.get("allowed_args_regex", ".*"),
-                        "require_interactive_approval": policy.get("require_interactive_approval", False),
                         "description": get_command_description(c_name, policy),
                     }
+                    if "auto_args_regex" in policy:
+                        cmd_info["auto_args_regex"] = policy["auto_args_regex"]
+                    if "approval_args_regex" in policy:
+                        cmd_info["approval_args_regex"] = policy["approval_args_regex"]
+                    commands_summary[c_name] = cmd_info
                 resp = {
                     "status": "success",
                     "type": "capabilities",
@@ -611,16 +618,33 @@ class HostExecServer:
 
             policy = policies[command_name]
             bin_path = policy["binary_path"]
-            args_regex = policy.get("allowed_args_regex", ".*")
             args_str = shlex.join(args) if args else ""
 
-            # 4. Arguments Regex Validation
-            if not re.fullmatch(args_regex, args_str):
-                logging.warning("%s Arguments '%s' violated policy regex: %s", prefix, args_str, args_regex)
+            auto_regex = policy.get("auto_args_regex")
+            approval_regex = policy.get("approval_args_regex")
+
+            approval_note = ""
+            auto_matches = bool(auto_regex and re.fullmatch(auto_regex, args_str))
+            approval_matches = bool(approval_regex and re.fullmatch(approval_regex, args_str))
+
+            if approval_matches and auto_matches:
+                logging.warning(
+                    "%s Arguments '%s' matched both approval_args_regex and auto_args_regex; defaulting to requiring approval",
+                    prefix,
+                    args_str,
+                )
+                needs_approval = True
+                approval_note = "Command arguments matched both approval_args_regex and auto_args_regex (approval required as fail-safe)."
+            elif approval_matches:
+                needs_approval = True
+            elif auto_matches:
+                needs_approval = False
+            else:
+                logging.warning("%s Arguments '%s' violated whitelist policy", prefix, args_str)
                 await self.send_json(writer, {
                     "status": "error",
                     "error_type": "args_violation",
-                    "message": f"Command arguments '{args_str}' violated whitelist pattern ({args_regex}) in ~/.agent-sandbox/whitelist.yaml",
+                    "message": f"Command arguments '{args_str}' violated whitelist pattern in ~/.agent-sandbox/whitelist.yaml",
                 })
                 return
 
@@ -629,7 +653,7 @@ class HostExecServer:
             effective_cwd = resolve_cwd(raw_cwd, prefix)
 
             # 6. Interactive User Approval (Serialized via approval_lock)
-            if policy.get("require_interactive_approval", False):
+            if needs_approval:
                 logging.info("%s Command requires interactive approval. Waiting for approval lock...", prefix)
                 async with self.approval_lock:
                     logging.info("%s Displaying approval dialog on macOS...", prefix)
@@ -640,6 +664,7 @@ class HostExecServer:
                         traj_id,
                         cwd=effective_cwd,
                         container_cwd=raw_cwd or "",
+                        note=approval_note,
                     )
 
                 if not approved:

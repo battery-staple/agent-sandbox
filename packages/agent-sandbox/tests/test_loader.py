@@ -128,7 +128,7 @@ class TestLoader(unittest.TestCase):
         cfg_file = os.path.join(self.temp_dir, "whitelist.yaml")
         initial = SandboxConfig(
             allowed_workspaces=("/Users/test/code",),
-            allowed_commands={"git": {"allowed_args_regex": "status"}},
+            allowed_commands={"git": {"auto_args_regex": "status"}},
         )
         save_sandbox_config(initial, cfg_file)
         loaded = load_sandbox_config(cfg_file)

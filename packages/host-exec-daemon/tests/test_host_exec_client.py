@@ -30,23 +30,36 @@ class TestHostExecClient(unittest.TestCase):
         commands = {
             "xcodebuild": {
                 "binary_path": "/usr/bin/xcodebuild",
-                "allowed_args_regex": "^(-version|-list.*)$",
-                "require_interactive_approval": False,
+                "auto_args_regex": "^(-version|-list.*)$",
                 "description": "Apple Xcode build tool",
             },
             "git-credential-osxkeychain": {
                 "binary_path": "/usr/bin/git",
-                "allowed_args_regex": "^credential-osxkeychain.*$",
-                "require_interactive_approval": True,
+                "approval_args_regex": "^credential-osxkeychain.*$",
                 "description": "Keychain helper",
             },
         }
         out = host_exec.format_capabilities(commands)
         self.assertIn("• xcodebuild", out)
         self.assertIn("Apple Xcode build tool", out)
-        self.assertIn("Auto (No prompt)", out)
+        self.assertIn("Auto Args (No prompt)        : ^(-version|-list.*)$", out)
         self.assertIn("• git-credential-osxkeychain", out)
-        self.assertIn("Interactive Approval Required (macOS Dialog)", out)
+        self.assertIn("Approval Args (macOS Prompt) : ^credential-osxkeychain.*$", out)
+
+    def test_format_capabilities_with_dual_regexes(self):
+        commands = {
+            "git": {
+                "binary_path": "/usr/bin/git",
+                "auto_args_regex": "^(status|diff|log).*$",
+                "approval_args_regex": "^(push|commit).*$",
+                "description": "macOS Git CLI",
+            },
+        }
+        out = host_exec.format_capabilities(commands)
+        self.assertIn("• git", out)
+        self.assertIn("macOS Git CLI", out)
+        self.assertIn("Auto Args (No prompt)        : ^(status|diff|log).*$", out)
+        self.assertIn("Approval Args (macOS Prompt) : ^(push|commit).*$", out)
 
     def test_get_auth_secret_from_env(self):
         orig = os.environ.get("HOST_EXEC_SECRET")

@@ -66,18 +66,18 @@ def format_capabilities(commands_dict: dict) -> str:
         for name, info in sorted(commands_dict.items()):
             desc = info.get("description", "")
             bin_path = info.get("binary_path", "")
-            regex = info.get("allowed_args_regex", ".*")
-            approval = (
-                "Interactive Approval Required (macOS Dialog)"
-                if info.get("require_interactive_approval")
-                else "Auto (No prompt)"
-            )
+            auto_regex = info.get("auto_args_regex")
+            approval_regex = info.get("approval_args_regex")
+
             out.append(f"• {name}")
             if desc:
                 out.append(f"  Description : {desc}")
             out.append(f"  Binary Path : {bin_path}")
-            out.append(f"  Allowed Args: {regex}")
-            out.append(f"  Approval    : {approval}")
+
+            if auto_regex:
+                out.append(f"  Auto Args (No prompt)        : {auto_regex}")
+            if approval_regex:
+                out.append(f"  Approval Args (macOS Prompt) : {approval_regex}")
             out.append("")
     out.append("=" * 80)
     return "\n".join(out)
