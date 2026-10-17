@@ -329,16 +329,24 @@ on showAlert(argv)
     set cmd_display to item 1 of argv
     set prompt_text to item 2 of argv
 
+    set curApp to current application's NSApplication's sharedApplication()
     try
-        set curApp to current application's NSApplication's sharedApplication()
         curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyRegular)
         curApp's activateIgnoringOtherApps:true
     end try
 
     set theAlert to current application's NSAlert's alloc()'s init()
-    theAlert's setMessageText:"Agent Sandbox Host Execution Request"
+    theAlert's setMessageText:"Host Execution Request"
     theAlert's setInformativeText:prompt_text
     theAlert's setAlertStyle:1
+
+    -- Icon: Use system terminal icon instead of generic application folder
+    try
+        set sfIcon to current application's NSImage's imageWithSystemSymbolName:"terminal.fill" accessibilityDescription:"Host Exec"
+        if sfIcon is not missing value then
+            theAlert's setIcon:sfIcon
+        end if
+    end try
 
     set denyBtn to theAlert's addButtonWithTitle:"Deny"
     set approveBtn to theAlert's addButtonWithTitle:"Approve"
@@ -350,17 +358,37 @@ on showAlert(argv)
         approveBtn's setKeyEquivalent:(character id 13)
     end try
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
+    -- Dynamic height for code block
+    set cmdLen to length of cmd_display
+    set boxH to 56
+    if cmdLen > 80 then
+        set boxH to 84
+    end if
+    if cmdLen > 180 then
+        set boxH to 120
+    end if
+
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {520, boxH}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
-    scrollView's setBorderType:2
+    scrollView's setBorderType:1
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
+    try
+        scrollView's setDrawsBackground:true
+        scrollView's setBackgroundColor:(current application's NSColor's controlBackgroundColor())
+        scrollView's setWantsLayer:true
+        scrollView's |layer|()'s setCornerRadius:6.0
+    end try
+
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {520, boxH}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
-    textView's setDrawsBackground:true
+    textView's setDrawsBackground:false
+    try
+        textView's setTextColor:(current application's NSColor's labelColor())
+    end try
     try
         textView's setTextContainerInset:{8, 8}
     end try
@@ -379,6 +407,8 @@ on showAlert(argv)
     scrollView's setDocumentView:textView
     theAlert's setAccessoryView:scrollView
 
+    -- Layout to calculate window geometry
+    theAlert's layout()
     set alertWin to theAlert's |window|()
 
     -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
@@ -403,16 +433,39 @@ on showAlert(argv)
     try
         set mouseLoc to current application's NSEvent's mouseLocation()
         set allScreens to current application's NSScreen's screens()
-        set targetScreen to item 1 of allScreens
-        set mouseX to mouseLoc's x
-        set mouseY to mouseLoc's y
+        set targetScreen to current application's NSScreen's mainScreen()
+
+        set mouseX to 0
+        set mouseY to 0
+        try
+            set mouseX to x of mouseLoc
+            set mouseY to y of mouseLoc
+        on error
+            try
+                set mouseX to item 1 of mouseLoc
+                set mouseY to item 2 of mouseLoc
+            end try
+        end try
 
         repeat with aScreen in allScreens
             set sFrame to aScreen's frame()
-            set sx to item 1 of item 1 of sFrame
-            set sy to item 2 of item 1 of sFrame
-            set sw to item 1 of item 2 of sFrame
-            set sh to item 2 of item 2 of sFrame
+            set sx to 0
+            set sy to 0
+            set sw to 0
+            set sh to 0
+            try
+                set sx to x of origin of sFrame
+                set sy to y of origin of sFrame
+                set sw to width of size of sFrame
+                set sh to height of size of sFrame
+            on error
+                try
+                    set sx to item 1 of item 1 of sFrame
+                    set sy to item 2 of item 1 of sFrame
+                    set sw to item 1 of item 2 of sFrame
+                    set sh to item 2 of item 2 of sFrame
+                end try
+            end try
             if mouseX >= sx and mouseX <= (sx + sw) and mouseY >= sy and mouseY <= (sy + sh) then
                 set targetScreen to aScreen
                 exit repeat
@@ -420,19 +473,46 @@ on showAlert(argv)
         end repeat
 
         set vFrame to targetScreen's visibleFrame()
-        set vx to item 1 of item 1 of vFrame
-        set vy to item 2 of item 1 of vFrame
-        set vw to item 1 of item 2 of vFrame
-        set vh to item 2 of item 2 of vFrame
+        set vx to 0
+        set vy to 0
+        set vw to 0
+        set vh to 0
+        try
+            set vx to x of origin of vFrame
+            set vy to y of origin of vFrame
+            set vw to width of size of vFrame
+            set vh to height of size of vFrame
+        on error
+            try
+                set vx to item 1 of item 1 of vFrame
+                set vy to item 2 of item 1 of vFrame
+                set vw to item 1 of item 2 of vFrame
+                set vh to item 2 of item 2 of vFrame
+            end try
+        end try
 
-        theAlert's layout()
         set winFrame to alertWin's frame()
-        set winW to item 1 of item 2 of winFrame
-        set winH to item 2 of item 2 of winFrame
+        set winW to 520
+        set winH to 240
+        try
+            set winW to width of size of winFrame
+            set winH to height of size of winFrame
+        on error
+            try
+                set winW to item 1 of item 2 of winFrame
+                set winH to item 2 of item 2 of winFrame
+            end try
+        end try
 
         set posX to vx + vw - winW - 24
-        set posY to vy + vh - winH - 12
-        alertWin's setFrameOrigin:{posX, posY}
+        set posY to vy + vh - winH - 24
+        try
+            alertWin's setFrameOrigin:{posX, posY}
+        on error
+            try
+                alertWin's setFrameOrigin:{x:posX, y:posY}
+            end try
+        end try
     end try
 
     -- Play alert chime
@@ -444,7 +524,10 @@ on showAlert(argv)
         alertWin's orderFrontRegardless()
     end try
 
-    set modalRes to theAlert's runModal()
+    alertWin's makeKeyAndOrderFront:missing value
+    set modalRes to curApp's runModalForWindow:alertWin
+    alertWin's orderOut:missing value
+
     if modalRes = 1001 then
         set modalResult to "Approve"
     else
@@ -474,20 +557,19 @@ async def prompt_user_approval_async(
         context_lines.append(f"Note: {note}")
     if container_cwd:
         context_lines.append(f"In-Container Directory: {container_cwd}")
-    if cwd:
-        context_lines.append(f"Out-of-Container Working Directory: {cwd}")
+        if cwd:
+            context_lines.append(f"Out-of-Container Working Directory: {cwd}")
+    elif cwd:
+        context_lines.append(f"Working Directory: {cwd}")
     if traj_id:
         context_lines.append(f"Trajectory: {traj_id}")
     if req_id:
         context_lines.append(f"Request: {req_id}")
 
-    prompt_parts = [
-        "Agent Sandbox is requesting to execute the following command on your macOS host:"
-    ]
+    prompt_parts = []
     if context_lines:
         prompt_parts.append("\n".join(context_lines))
-    prompt_parts.append("Do you authorize this execution?")
-    prompt_text = "\n\n".join(prompt_parts)
+    prompt_text = "\n\n".join(prompt_parts) if prompt_parts else "Do you authorize this execution?"
 
     # 1. Primary: Native Cocoa NSAlert with monospaced, read-only NSTextView codeblock
     stderr_text = ""
