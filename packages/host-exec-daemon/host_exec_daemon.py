@@ -371,7 +371,7 @@ on showAlert(argv)
         set boxH to 130
     end if
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {550, boxH}}
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {580, boxH}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
@@ -384,7 +384,7 @@ on showAlert(argv)
         scrollView's |layer|()'s setCornerRadius:8.0
     end try
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {550, boxH}}
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {580, boxH}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
@@ -433,15 +433,15 @@ on showAlert(argv)
     -- Apply rich typography to the informative text field
     try
         set attrStr to current application's NSMutableAttributedString's alloc()'s initWithString:""
-        set boldFont to current application's NSFont's boldSystemFontOfSize:14.5
-        set regularFont to current application's NSFont's systemFontOfSize:14.5
+        set boldFont to current application's NSFont's boldSystemFontOfSize:17.0
+        set regularFont to current application's NSFont's systemFontOfSize:17.0
         
-        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:14.0
+        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:15.5
         if monoFont11 is missing value then
             try
-                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:14.0 weight:0.0
+                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:15.5 weight:0.0
             on error
-                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:14.0
+                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:15.5
             end try
         end if
 
@@ -493,14 +493,17 @@ on showAlert(argv)
                 set curVal to (aView's stringValue() as text)
                 if curVal is "Host Execution Request" then
                     try
-                        aView's setFont:(current application's NSFont's boldSystemFontOfSize:16.0)
+                        aView's setFont:(current application's NSFont's boldSystemFontOfSize:20.0)
+                        aView's sizeToFit()
                     end try
                 else if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
                     aView's setAllowsEditingTextAttributes:true
                     aView's setAttributedStringValue:attrStr
+                    aView's sizeToFit()
                 end if
             end if
         end repeat
+        theAlert's layout()
     end try
 
     -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
@@ -584,8 +587,8 @@ on showAlert(argv)
         end try
 
         set winFrame to alertWin's frame()
-        set winW to 550
-        set winH to 260
+        set winW to 580
+        set winH to 280
         try
             set winW to width of size of winFrame
             set winH to height of size of winFrame
