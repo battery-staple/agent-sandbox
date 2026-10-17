@@ -376,6 +376,8 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("theAlert's setAccessoryView:scrollView", script)
 
         # Verify Floating HUD window behavior configurations
+        self.assertIn("isMainThread()", script)
+        self.assertIn("performSelectorOnMainThread:\"showAlert:\"", script)
         self.assertIn("NSStatusWindowLevel", script)
         self.assertIn("setCollectionBehavior:259", script)
         self.assertIn("setHidesOnDeactivate:false", script)

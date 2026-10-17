@@ -313,14 +313,31 @@ use framework "Foundation"
 use framework "AppKit"
 use scripting additions
 
+property modalResult : "Deny"
+
 on run argv
+    if not (current application's NSThread's isMainThread()) as boolean then
+        my performSelectorOnMainThread:"showAlert:" withObject:argv waitUntilDone:true
+    else
+        my showAlert:argv
+    end if
+    return modalResult
+end run
+
+on showAlert:argv
     set cmd_display to item 1 of argv
     set prompt_text to item 2 of argv
+
+    try
+        set curApp to current application's NSApplication's sharedApplication()
+        curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyRegular)
+        curApp's activateIgnoringOtherApps:true
+    end try
 
     set theAlert to current application's NSAlert's alloc()'s init()
     theAlert's setMessageText:"Agent Sandbox Host Execution Request"
     theAlert's setInformativeText:prompt_text
-    theAlert's setAlertStyle:2
+    theAlert's setAlertStyle:1
 
     set denyBtn to theAlert's addButtonWithTitle:"Deny"
     set approveBtn to theAlert's addButtonWithTitle:"Approve"
@@ -332,24 +349,29 @@ on run argv
         approveBtn's setKeyEquivalent:(character id 13)
     end try
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {480, 85}}
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
     scrollView's setBorderType:2
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {480, 85}}
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {520, 110}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
     textView's setDrawsBackground:true
-    textView's setTextContainerInset:{width:8, height:8}
-    textView's textContainer()'s setWidthTracksTextView:true
+    try
+        textView's setTextContainerInset:{8, 8}
+    end try
 
     try
         set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
     on error
-        set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+        try
+            set monoFont to current application's NSFont's fontWithName:"Menlo" |size|:12.0
+        on error
+            set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+        end try
     end try
     textView's setFont:monoFont
 
@@ -363,7 +385,7 @@ on run argv
         alertWin's setLevel:(current application's NSStatusWindowLevel)
     on error
         try
-            alertWin's setLevel:(current application's NSFloatingWindowLevel)
+            alertWin's setLevel:25
         end try
     end try
 
@@ -403,9 +425,9 @@ on run argv
         set vh to item 2 of item 2 of vFrame
 
         theAlert's layout()
-        set winSize to alertWin's frame()'s |size|()
-        set winW to winSize's width
-        set winH to winSize's height
+        set winFrame to alertWin's frame()
+        set winW to item 1 of item 2 of winFrame
+        set winH to item 2 of item 2 of winFrame
 
         set posX to vx + vw - winW - 24
         set posY to vy + vh - winH - 12
@@ -418,19 +440,16 @@ on run argv
     end try
 
     try
-        current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
-    end try
-    try
         alertWin's orderFrontRegardless()
     end try
 
-    set modalResult to theAlert's runModal()
-    if modalResult = 1001 then
-        return "Approve"
+    set modalRes to theAlert's runModal()
+    if modalRes = 1001 then
+        set script:modalResult to "Approve"
     else
-        return "Deny"
+        set script:modalResult to "Deny"
     end if
-end run
+end showAlert:
 """
 
 
