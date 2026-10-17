@@ -322,21 +322,28 @@ on run argv
     theAlert's setInformativeText:prompt_text
     theAlert's setAlertStyle:2
 
-    theAlert's addButtonWithTitle:"Deny"
-    theAlert's addButtonWithTitle:"Approve"
+    set denyBtn to theAlert's addButtonWithTitle:"Deny"
+    set approveBtn to theAlert's addButtonWithTitle:"Approve"
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    try
+        denyBtn's setKeyEquivalent:(character id 27)
+    end try
+    try
+        approveBtn's setKeyEquivalent:(character id 13)
+    end try
+
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {480, 85}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
     scrollView's setBorderType:2
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {480, 85}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
     textView's setDrawsBackground:true
-    textView's setTextContainerInset:{width:6, height:6}
+    textView's setTextContainerInset:{width:8, height:8}
     textView's textContainer()'s setWidthTracksTextView:true
 
     try
@@ -349,7 +356,74 @@ on run argv
     scrollView's setDocumentView:textView
     theAlert's setAccessoryView:scrollView
 
-    current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
+    set alertWin to theAlert's |window|()
+
+    -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
+    try
+        alertWin's setLevel:(current application's NSStatusWindowLevel)
+    on error
+        try
+            alertWin's setLevel:(current application's NSFloatingWindowLevel)
+        end try
+    end try
+
+    -- Collection Behavior: CanJoinAllSpaces (1) + MoveToActiveSpace (2) + FullScreenAuxiliary (256) = 259
+    try
+        alertWin's setCollectionBehavior:259
+    end try
+
+    try
+        alertWin's setHidesOnDeactivate:false
+    end try
+
+    -- Position at top-right of active screen (screen with mouse cursor)
+    try
+        set mouseLoc to current application's NSEvent's mouseLocation()
+        set allScreens to current application's NSScreen's screens()
+        set targetScreen to item 1 of allScreens
+        set mx to mouseLoc's x
+        set my to mouseLoc's y
+
+        repeat with aScreen in allScreens
+            set sFrame to aScreen's frame()
+            set sx to item 1 of item 1 of sFrame
+            set sy to item 2 of item 1 of sFrame
+            set sw to item 1 of item 2 of sFrame
+            set sh to item 2 of item 2 of sFrame
+            if mx >= sx and mx <= (sx + sw) and my >= sy and my <= (sy + sh) then
+                set targetScreen to aScreen
+                exit repeat
+            end if
+        end repeat
+
+        set vFrame to targetScreen's visibleFrame()
+        set vx to item 1 of item 1 of vFrame
+        set vy to item 2 of item 1 of vFrame
+        set vw to item 1 of item 2 of vFrame
+        set vh to item 2 of item 2 of vFrame
+
+        theAlert's layout()
+        set winSize to alertWin's frame()'s |size|()
+        set winW to winSize's width
+        set winH to winSize's height
+
+        set posX to vx + vw - winW - 24
+        set posY to vy + vh - winH - 12
+        alertWin's setFrameOrigin:{posX, posY}
+    end try
+
+    -- Play alert chime
+    try
+        current application's NSBeep()
+    end try
+
+    try
+        current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
+    end try
+    try
+        alertWin's orderFrontRegardless()
+    end try
+
     set modalResult to theAlert's runModal()
     if modalResult = 1001 then
         return "Approve"
