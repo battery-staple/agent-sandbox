@@ -331,8 +331,11 @@ on showAlert(argv)
 
     set curApp to current application's NSApplication's sharedApplication()
     try
-        curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyRegular)
-        curApp's activateIgnoringOtherApps:true
+        curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyAccessory)
+    on error
+        try
+            curApp's setActivationPolicy:1
+        end try
     end try
 
     set theAlert to current application's NSAlert's alloc()'s init()
@@ -361,10 +364,10 @@ on showAlert(argv)
     -- Dynamic height for code block
     set cmdLen to length of cmd_display
     set boxH to 56
-    if cmdLen > 80 then
+    if cmdLen > 70 then
         set boxH to 84
     end if
-    if cmdLen > 180 then
+    if cmdLen > 160 then
         set boxH to 120
     end if
 
@@ -390,16 +393,32 @@ on showAlert(argv)
         textView's setTextColor:(current application's NSColor's labelColor())
     end try
     try
-        textView's setTextContainerInset:{8, 8}
+        textView's setTextContainerInset:{8, 10}
     end try
 
+    -- Modern typography: Prefer SFMono-Medium, fall back gracefully
     try
-        set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
+        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:13.0
+        if monoFont is missing value then error
     on error
         try
-            set monoFont to current application's NSFont's fontWithName:"Menlo" |size|:12.0
+            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:13.0
+            if monoFont is missing value then error
         on error
-            set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+            try
+                set monoFont to current application's NSFont's monospacedSystemFontOfSize:13.0 weight:(current application's NSFontWeightMedium)
+                if monoFont is missing value then error
+            on error
+                try
+                    set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
+                on error
+                    try
+                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:12.0
+                    on error
+                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+                    end try
+                end try
+            end try
         end try
     end try
     textView's setFont:monoFont
@@ -411,6 +430,75 @@ on showAlert(argv)
     theAlert's layout()
     set alertWin to theAlert's |window|()
 
+    -- Apply rich typography to the informative text field
+    try
+        set attrStr to current application's NSMutableAttributedString's alloc()'s initWithString:""
+        set boldFont to current application's NSFont's boldSystemFontOfSize:11.0
+        set regularFont to current application's NSFont's systemFontOfSize:11.0
+        
+        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:10.5
+        if monoFont11 is missing value then
+            try
+                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:10.5 weight:0.0
+            on error
+                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:10.5
+            end try
+        end if
+
+        set labelCol to current application's NSColor's secondaryLabelColor()
+        set valueCol to current application's NSColor's labelColor()
+        set noteCol to current application's NSColor's systemOrangeColor()
+
+        set labelDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, labelCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set valueDict to current application's NSDictionary's dictionaryWithObjects:{regularFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set noteDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, noteCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+
+        set promptParas to paragraphs of prompt_text
+        repeat with aPara in promptParas
+            set lineText to (aPara as text)
+            if length of lineText > 0 then
+                if (attrStr's |length|()) > 0 then
+                    set nl to current application's NSAttributedString's alloc()'s initWithString:(character id 10) attributes:valueDict
+                    attrStr's appendAttributedString:nl
+                end if
+
+                set colonOffset to offset of ": " in lineText
+                if colonOffset > 0 then
+                    set kStr to (text 1 through (colonOffset + 1) of lineText)
+                    set vStr to (text (colonOffset + 2) through -1 of lineText)
+                    
+                    if kStr starts with "Note" then
+                        set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:noteDict
+                        set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:noteDict
+                    else
+                        set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:labelDict
+                        if kStr contains "Directory" or kStr contains "Request" or kStr contains "Trajectory" then
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:monoDict
+                        else
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:valueDict
+                        end if
+                    end if
+                    attrStr's appendAttributedString:kPart
+                    attrStr's appendAttributedString:vPart
+                else
+                    set pPart to current application's NSAttributedString's alloc()'s initWithString:lineText attributes:valueDict
+                    attrStr's appendAttributedString:pPart
+                end if
+            end if
+        end repeat
+
+        repeat with aView in (alertWin's contentView()'s subviews())
+            if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
+                set curVal to (aView's stringValue() as text)
+                if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
+                    aView's setAllowsEditingTextAttributes:true
+                    aView's setAttributedStringValue:attrStr
+                end if
+            end if
+        end repeat
+    end try
+
     -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
     try
         alertWin's setLevel:(current application's NSStatusWindowLevel)
@@ -420,9 +508,9 @@ on showAlert(argv)
         end try
     end try
 
-    -- Collection Behavior: CanJoinAllSpaces (1) + MoveToActiveSpace (2) + FullScreenAuxiliary (256) = 259
+    -- Collection Behavior: CanJoinAllSpaces (1) + FullScreenAuxiliary (256) = 257
     try
-        alertWin's setCollectionBehavior:259
+        alertWin's setCollectionBehavior:257
     end try
 
     try
@@ -525,6 +613,9 @@ on showAlert(argv)
     end try
 
     alertWin's makeKeyAndOrderFront:missing value
+    try
+        curApp's activateIgnoringOtherApps:true
+    end try
     set modalRes to curApp's runModalForWindow:alertWin
     alertWin's orderOut:missing value
 
