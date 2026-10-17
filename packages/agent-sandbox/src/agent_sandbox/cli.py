@@ -195,8 +195,6 @@ class SandboxCLI:
         cmd.extend(compose_args)
 
         env = os.environ.copy()
-        env["HOST_UID"] = str(os.getuid() if hasattr(os, "getuid") else 1000)
-        env["HOST_GID"] = str(os.getgid() if hasattr(os, "getgid") else 1000)
         env["HOST_IPC_PATH"] = self.ipc_dir
 
         res = subprocess.run(cmd, env=env, check=False)

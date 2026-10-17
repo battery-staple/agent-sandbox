@@ -6,9 +6,6 @@ x-sandbox-common:
   build:
     context: .
     dockerfile: Dockerfile.sandbox
-    args:
-      USER_UID: ${HOST_UID:-1000}
-      USER_GID: ${HOST_GID:-1000}
   restart: unless-stopped
   shm_size: '2gb' # Expanded shared memory for headless Chromium browser automation
   cap_drop:

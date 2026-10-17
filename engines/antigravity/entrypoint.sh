@@ -13,7 +13,7 @@ if [ "$#" -eq 0 ]; then
     socat TCP-LISTEN:58432,fork,bind=0.0.0.0,reuseaddr TCP:127.0.0.1:58431 2>/dev/null &
 
     echo "[Antigravity] Executing Language Server: /usr/local/bin/language_server"
-    exec /usr/local/bin/language_server \
+    exec setpriv --reuid=developer --regid=developer --init-groups /usr/local/bin/language_server \
         --standalone \
         --override_ide_name antigravity \
         --subclient_type hub \
