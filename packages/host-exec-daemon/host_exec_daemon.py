@@ -363,15 +363,15 @@ on showAlert(argv)
 
     -- Dynamic height for code block
     set cmdLen to length of cmd_display
-    set boxH to 56
-    if cmdLen > 70 then
-        set boxH to 84
+    set boxH to 64
+    if cmdLen > 65 then
+        set boxH to 92
     end if
-    if cmdLen > 160 then
-        set boxH to 120
+    if cmdLen > 150 then
+        set boxH to 135
     end if
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {520, boxH}}
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {550, boxH}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
@@ -381,10 +381,10 @@ on showAlert(argv)
         scrollView's setDrawsBackground:true
         scrollView's setBackgroundColor:(current application's NSColor's controlBackgroundColor())
         scrollView's setWantsLayer:true
-        scrollView's |layer|()'s setCornerRadius:6.0
+        scrollView's |layer|()'s setCornerRadius:8.0
     end try
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {520, boxH}}
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {550, boxH}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
@@ -393,29 +393,29 @@ on showAlert(argv)
         textView's setTextColor:(current application's NSColor's labelColor())
     end try
     try
-        textView's setTextContainerInset:{8, 10}
+        textView's setTextContainerInset:{10, 12}
     end try
 
-    -- Modern typography: Prefer SFMono-Medium, fall back gracefully
+    -- Modern typography: Prefer SFMono-Medium 15pt, fall back gracefully
     try
-        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:13.0
+        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:15.0
         if monoFont is missing value then error
     on error
         try
-            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:13.0
+            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:15.0
             if monoFont is missing value then error
         on error
             try
-                set monoFont to current application's NSFont's monospacedSystemFontOfSize:13.0 weight:(current application's NSFontWeightMedium)
+                set monoFont to current application's NSFont's monospacedSystemFontOfSize:15.0 weight:(current application's NSFontWeightMedium)
                 if monoFont is missing value then error
             on error
                 try
                     set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
                 on error
                     try
-                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:12.0
+                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:13.5
                     on error
-                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:13.5
                     end try
                 end try
             end try
@@ -433,15 +433,15 @@ on showAlert(argv)
     -- Apply rich typography to the informative text field
     try
         set attrStr to current application's NSMutableAttributedString's alloc()'s initWithString:""
-        set boldFont to current application's NSFont's boldSystemFontOfSize:11.0
-        set regularFont to current application's NSFont's systemFontOfSize:11.0
+        set boldFont to current application's NSFont's boldSystemFontOfSize:13.0
+        set regularFont to current application's NSFont's systemFontOfSize:13.0
         
-        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:10.5
+        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:12.5
         if monoFont11 is missing value then
             try
-                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:10.5 weight:0.0
+                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:12.5 weight:0.0
             on error
-                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:10.5
+                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:12.5
             end try
         end if
 
@@ -580,8 +580,8 @@ on showAlert(argv)
         end try
 
         set winFrame to alertWin's frame()
-        set winW to 520
-        set winH to 240
+        set winW to 550
+        set winH to 260
         try
             set winW to width of size of winFrame
             set winH to height of size of winFrame
