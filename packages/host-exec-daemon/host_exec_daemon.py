@@ -363,12 +363,12 @@ on showAlert(argv)
 
     -- Dynamic height for code block
     set cmdLen to length of cmd_display
-    set boxH to 64
+    set boxH to 60
     if cmdLen > 65 then
-        set boxH to 92
+        set boxH to 88
     end if
     if cmdLen > 150 then
-        set boxH to 135
+        set boxH to 130
     end if
 
     set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {550, boxH}}
@@ -393,29 +393,29 @@ on showAlert(argv)
         textView's setTextColor:(current application's NSColor's labelColor())
     end try
     try
-        textView's setTextContainerInset:{10, 12}
+        textView's setTextContainerInset:{9, 12}
     end try
 
-    -- Modern typography: Prefer SFMono-Medium 15pt, fall back gracefully
+    -- Modern typography: SFMono-Medium 14pt, fall back gracefully
     try
-        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:15.0
+        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:14.0
         if monoFont is missing value then error
     on error
         try
-            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:15.0
+            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:14.0
             if monoFont is missing value then error
         on error
             try
-                set monoFont to current application's NSFont's monospacedSystemFontOfSize:15.0 weight:(current application's NSFontWeightMedium)
+                set monoFont to current application's NSFont's monospacedSystemFontOfSize:14.0 weight:(current application's NSFontWeightMedium)
                 if monoFont is missing value then error
             on error
                 try
                     set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
                 on error
                     try
-                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:13.5
+                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:13.0
                     on error
-                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:13.5
+                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:13.0
                     end try
                 end try
             end try
@@ -433,15 +433,15 @@ on showAlert(argv)
     -- Apply rich typography to the informative text field
     try
         set attrStr to current application's NSMutableAttributedString's alloc()'s initWithString:""
-        set boldFont to current application's NSFont's boldSystemFontOfSize:13.0
-        set regularFont to current application's NSFont's systemFontOfSize:13.0
+        set boldFont to current application's NSFont's boldSystemFontOfSize:14.5
+        set regularFont to current application's NSFont's systemFontOfSize:14.5
         
-        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:12.5
+        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:14.0
         if monoFont11 is missing value then
             try
-                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:12.5 weight:0.0
+                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:14.0 weight:0.0
             on error
-                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:12.5
+                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:14.0
             end try
         end if
 
@@ -491,7 +491,11 @@ on showAlert(argv)
         repeat with aView in (alertWin's contentView()'s subviews())
             if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
                 set curVal to (aView's stringValue() as text)
-                if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
+                if curVal is "Host Execution Request" then
+                    try
+                        aView's setFont:(current application's NSFont's boldSystemFontOfSize:16.0)
+                    end try
+                else if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
                     aView's setAllowsEditingTextAttributes:true
                     aView's setAttributedStringValue:attrStr
                 end if
