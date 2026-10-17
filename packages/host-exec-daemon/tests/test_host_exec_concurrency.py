@@ -39,21 +39,30 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
             "allowed_commands": {
                 "echo": {
                     "binary_path": sys.executable,
-                    "allowed_args_regex": "^.*$",
-                    "require_interactive_approval": False,
+                    "auto_args_regex": "^.*$",
                     "description": "Echo command via python",
                 },
                 "slow_cmd": {
                     "binary_path": sys.executable,
-                    "allowed_args_regex": "^.*$",
-                    "require_interactive_approval": False,
+                    "auto_args_regex": "^.*$",
                     "description": "Slow sleep command",
                 },
                 "approval_cmd": {
                     "binary_path": sys.executable,
-                    "allowed_args_regex": "^.*$",
-                    "require_interactive_approval": True,
+                    "approval_args_regex": "^.*$",
                     "description": "Command requiring interactive approval",
+                },
+                "subcommand_tool": {
+                    "binary_path": sys.executable,
+                    "auto_args_regex": "^-c .*print.*(auto|status).*$",
+                    "approval_args_regex": "^-c .*print.*(approval|push).*$",
+                    "description": "Subcommand tool with dual regexes",
+                },
+                "overlapping_tool": {
+                    "binary_path": sys.executable,
+                    "auto_args_regex": "^-c .*print.*(overlap|auto).*$",
+                    "approval_args_regex": "^-c .*print.*(overlap|approval).*$",
+                    "description": "Tool where patterns overlap",
                 },
             },
         }
@@ -163,7 +172,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         """Verify non-interactive commands run and finish while an interactive approval is pending."""
         approval_gate = asyncio.Event()
 
-        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
+        async def mock_approval_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd="", note=""):
             await approval_gate.wait()
             return True
 
@@ -204,7 +213,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         received_cwds = []
         received_container_cwds = []
 
-        async def mock_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
+        async def mock_dialog(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd="", note=""):
             nonlocal active_prompts, max_simultaneous_prompts
             active_prompts += 1
             max_simultaneous_prompts = max(max_simultaneous_prompts, active_prompts)
@@ -244,7 +253,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
 
     async def test_interactive_approval_denial(self):
         """Verify user denial cleanly aborts execution with denied_by_user and no process runs."""
-        async def mock_denial(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd=""):
+        async def mock_denial(cmd_name, args, req_id="", traj_id="", cwd="", container_cwd="", note=""):
             return False
 
         orig_prompt = host_exec_daemon.prompt_user_approval_async
@@ -361,8 +370,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         updated_whitelist = dict(self.initial_whitelist)
         updated_whitelist["allowed_commands"]["new_tool"] = {
             "binary_path": sys.executable,
-            "allowed_args_regex": "^.*$",
-            "require_interactive_approval": False,
+            "auto_args_regex": "^.*$",
             "description": "Newly added tool",
         }
         with open(self.whitelist_path, "w", encoding="utf-8") as f:
@@ -433,6 +441,94 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
             await slow_task
         except Exception:
             pass
+
+    async def test_dual_regex_auto_args_bypasses_approval(self):
+        """Verify that args matching auto_args_regex execute immediately without prompting for approval."""
+        prompt_called = False
+        async def mock_dialog(*args, **kwargs):
+            nonlocal prompt_called
+            prompt_called = True
+            return True
+
+        orig_prompt = host_exec_daemon.prompt_user_approval_async
+        host_exec_daemon.prompt_user_approval_async = mock_dialog
+        try:
+            res = await self._send_request("subcommand_tool", ["-c", "print('auto')"])
+            self.assertEqual(res.get("status"), "success")
+            self.assertIn("auto", res.get("stdout", ""))
+            self.assertFalse(prompt_called, "Interactive approval dialog should NOT have been invoked")
+        finally:
+            host_exec_daemon.prompt_user_approval_async = orig_prompt
+
+    async def test_dual_regex_approval_args_prompts_and_approves(self):
+        """Verify that args matching approval_args_regex require and process approval."""
+        prompt_called = False
+        async def mock_dialog(*args, **kwargs):
+            nonlocal prompt_called
+            prompt_called = True
+            return True
+
+        orig_prompt = host_exec_daemon.prompt_user_approval_async
+        host_exec_daemon.prompt_user_approval_async = mock_dialog
+        try:
+            res = await self._send_request("subcommand_tool", ["-c", "print('approval')"])
+            self.assertEqual(res.get("status"), "success")
+            self.assertIn("approval", res.get("stdout", ""))
+            self.assertTrue(prompt_called, "Interactive approval dialog SHOULD have been invoked")
+        finally:
+            host_exec_daemon.prompt_user_approval_async = orig_prompt
+
+    async def test_dual_regex_approval_args_denied(self):
+        """Verify that user denial on approval_args_regex aborts command execution."""
+        async def mock_denial(*args, **kwargs):
+            return False
+
+        orig_prompt = host_exec_daemon.prompt_user_approval_async
+        host_exec_daemon.prompt_user_approval_async = mock_denial
+        try:
+            res = await self._send_request("subcommand_tool", ["-c", "print('approval')"])
+            self.assertEqual(res.get("error_type"), "denied_by_user")
+        finally:
+            host_exec_daemon.prompt_user_approval_async = orig_prompt
+
+    async def test_dual_regex_violation(self):
+        """Verify that args matching neither regex are rejected with args_violation."""
+        res = await self._send_request("subcommand_tool", ["-c", "print('forbidden')"])
+        self.assertEqual(res.get("error_type"), "args_violation")
+        self.assertIn("violated whitelist pattern", res.get("message", ""))
+
+    async def test_dual_regex_both_match_defaults_to_approval(self):
+        """Verify that when both regexes match, approval is required, a warning is logged, and a note is passed."""
+        captured_kwargs = {}
+        async def mock_dialog(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return True
+
+        orig_prompt = host_exec_daemon.prompt_user_approval_async
+        host_exec_daemon.prompt_user_approval_async = mock_dialog
+        try:
+            with self.assertLogs(level="WARNING") as cm:
+                res = await self._send_request("overlapping_tool", ["-c", "print('overlap')"])
+            self.assertEqual(res.get("status"), "success")
+            self.assertIn("overlap", res.get("stdout", ""))
+            warning_text = "\n".join(cm.output)
+            self.assertIn("matched both approval_args_regex and auto_args_regex", warning_text)
+            self.assertIn("note", captured_kwargs)
+            self.assertIn("fail-safe", captured_kwargs["note"])
+        finally:
+            host_exec_daemon.prompt_user_approval_async = orig_prompt
+
+    async def test_introspection_includes_dual_regexes(self):
+        """Verify that __list__ capabilities output includes auto_args_regex and approval_args_regex."""
+        list_res = await self._send_request("__list__", [])
+        self.assertEqual(list_res.get("status"), "success")
+        allowed_cmds = list_res.get("allowed_commands", {})
+
+        sub_info = allowed_cmds.get("subcommand_tool", {})
+        self.assertIn("auto_args_regex", sub_info)
+        self.assertIn("approval_args_regex", sub_info)
+        self.assertEqual(sub_info["auto_args_regex"], "^-c .*print.*(auto|status).*$")
+        self.assertEqual(sub_info["approval_args_regex"], "^-c .*print.*(approval|push).*$")
 
 
 if __name__ == "__main__":

@@ -58,9 +58,13 @@ host-exec open -a Simulator
    - If no matching host directory exists, the command falls back to the host home directory, and the daemon logs a warning naming both directories.
 3. **HMAC-SHA256 Authentication**:
    - `host-exec` signs every request with a secret token shared between the host daemon and the container.
-4. **Interactive User Approval**:
-   - If a command is configured with `require_interactive_approval: true`, a native macOS dialog will appear on the developer's screen with **Approve** / **Deny** buttons.
-   - *Note*: If the command is waiting for user approval, do not spam repeated executions.
+4. **Interactive User Approval & Subcommand Policies**:
+   - Commands can configure separate argument regexes for automatic execution vs. approval-gated execution:
+     - `auto_args_regex`: Arguments that run immediately without an interactive prompt (e.g. read-only subcommands like `status`, `diff`, `log`).
+     - `approval_args_regex`: Arguments that require explicit user authorization via a native macOS NSAlert dialog with **Approve** / **Deny** buttons (e.g. mutation subcommands like `push`, `commit`).
+   - For commands where both patterns match, `approval_args_regex` takes precedence as a fail-safe.
+   - Run `host-exec --list` to inspect which subcommands/arguments require approval vs. run automatically.
+   - *Note*: If a command is waiting for user approval, do not spam repeated executions.
 
 ---
 

@@ -276,10 +276,20 @@ class TestCommandDescription(unittest.TestCase):
         self.assertEqual(get_command_description("echo", policy), "Custom tool description")
 
     def test_fallback_description_with_alias(self):
-        policy = {"binary_path": "/usr/bin/open", "allowed_args_regex": "^-a Simulator$"}
+        policy = {"binary_path": "/usr/bin/open", "auto_args_regex": "^-a Simulator$"}
         desc = get_command_description("simulator", policy)
         self.assertIn("Run '/usr/bin/open' via alias 'simulator'", desc)
         self.assertIn("-a Simulator", desc)
+
+    def test_fallback_description_with_dual_regexes(self):
+        policy = {
+            "binary_path": "/usr/bin/git",
+            "auto_args_regex": "^(status|diff)$",
+            "approval_args_regex": "^(push|commit)$",
+        }
+        desc = get_command_description("git", policy)
+        self.assertIn("Execute host binary '/usr/bin/git'", desc)
+        self.assertIn("(status|diff)", desc)
 
 
 class TestSecretLifecycle(unittest.TestCase):
@@ -401,6 +411,23 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         prompt_arg = mock_exec.call_args[0][4]
         self.assertIn("In-Container Directory: /home/developer/project", prompt_arg)
         self.assertIn("Out-of-Container Working Directory: /Users/example/project", prompt_arg)
+
+    @patch("asyncio.create_subprocess_exec")
+    async def test_prompt_includes_note(self, mock_exec):
+        proc_mock = AsyncMock()
+        proc_mock.communicate.return_value = (b"Approve\n", b"")
+        proc_mock.returncode = 0
+        mock_exec.return_value = proc_mock
+
+        res = await prompt_user_approval_async(
+            "git",
+            ["push", "origin", "main"],
+            note="Matched both auto and approval patterns.",
+        )
+        self.assertTrue(res)
+
+        prompt_arg = mock_exec.call_args[0][4]
+        self.assertIn("Note: Matched both auto and approval patterns.", prompt_arg)
 
     @patch("asyncio.create_subprocess_exec")
     async def test_prompt_omits_working_directory_when_unknown(self, mock_exec):

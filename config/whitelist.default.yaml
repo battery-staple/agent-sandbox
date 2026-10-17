@@ -1,28 +1,29 @@
 allowed_workspaces: []
 
+# Whitelist Policy Configuration
+#
+# Commands configure arguments and approval policy via argument regexes:
+#   auto_args_regex: Arguments regex that execute automatically without approval
+#   approval_args_regex: Arguments regex requiring interactive macOS approval dialog
+# If arguments match both, approval_args_regex takes precedence as a fail-safe.
 allowed_commands:
   xcodebuild:
     binary_path: /usr/bin/xcodebuild
-    allowed_args_regex: ^(-version|-showsdks|-list.*)$
-    require_interactive_approval: false
+    auto_args_regex: ^(-version|-showsdks|-list.*)$
     description: Apple Xcode build system and SDK inspection
   open:
     binary_path: /usr/bin/open
-    allowed_args_regex: ^(-a Simulator|https?://.*)$
-    require_interactive_approval: false
+    auto_args_regex: ^(-a Simulator|https?://.*)$
     description: Open URLs or macOS applications (e.g. Simulator)
   git-credential-osxkeychain:
     binary_path: /usr/bin/git
-    allowed_args_regex: ^credential-osxkeychain (get|store|erase)$
-    require_interactive_approval: true
+    approval_args_regex: ^credential-osxkeychain (get|store|erase)$
     description: macOS Keychain Git credential helper
   sw_vers:
     binary_path: /usr/bin/sw_vers
-    allowed_args_regex: ^.*$
-    require_interactive_approval: false
+    auto_args_regex: ^.*$
     description: macOS system version information
   chrome:
     binary_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-    allowed_args_regex: ^(--remote-debugging-port=\d+.*|--version.*)$
-    require_interactive_approval: false
+    auto_args_regex: ^(--remote-debugging-port=\d+.*|--version.*)$
     description: Google Chrome with remote debugging on macOS host
