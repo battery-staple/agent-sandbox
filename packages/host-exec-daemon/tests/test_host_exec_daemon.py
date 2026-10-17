@@ -394,6 +394,10 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mouseLocation()", script)
         self.assertIn("NSBeep()", script)
         self.assertIn("orderFrontRegardless()", script)
+        self.assertIn("terminal.fill", script)
+        self.assertIn("controlBackgroundColor()", script)
+        self.assertIn("setFrameOrigin:", script)
+        self.assertIn("runModalForWindow:", script)
         self.assertIn("denyBtn's setKeyEquivalent:(character id 27)", script)
         self.assertIn("approveBtn's setKeyEquivalent:(character id 13)", script)
 
