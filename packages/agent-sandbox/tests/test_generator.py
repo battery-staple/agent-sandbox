@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 import yaml
 
 PKG_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -19,6 +20,8 @@ from agent_sandbox.config.models import (
     EngineSkillConfig,
     SandboxConfig,
 )
+from agent_sandbox.engines import EngineRuntime
+from agent_sandbox.engines.opencode import OpencodeAdapter
 
 
 class TestGenerator(unittest.TestCase):
@@ -38,7 +41,6 @@ class TestGenerator(unittest.TestCase):
                 "build": {
                     "context": ".",
                     "dockerfile": "Dockerfile.sandbox",
-                    "args": {"USER_UID": "${HOST_UID:-1000}", "USER_GID": "${HOST_GID:-1000}"},
                 },
                 "restart": "unless-stopped",
                 "shm_size": "2gb",
@@ -106,6 +108,8 @@ class TestGenerator(unittest.TestCase):
             self.assertEqual(svc["cap_drop"], ["ALL"])
             self.assertEqual(svc["build"]["dockerfile"], "Dockerfile.sandbox")
             self.assertEqual(svc["build"]["context"], os.path.abspath(self.repo_root))
+            # No build-time host-UID remap: the image user is fixed at UID 1000.
+            self.assertNotIn("args", svc["build"])
             self.assertIn("127.0.0.1:3000-3005:3000-3005", svc["ports"])
             self.assertTrue(any(env.startswith("HOST_EXEC_HOST=") for env in svc["environment"]))
 
@@ -195,6 +199,53 @@ class TestGenerator(unittest.TestCase):
         self.assertIn("opencode", second_parsed["services"])
         self.assertIn("agent_home_antigravity", second_parsed["volumes"])
         self.assertIn("agent_home_opencode", second_parsed["volumes"])
+
+    def test_ssh_engine_mounts_public_key_read_only(self):
+        engine_ssh = EngineManifest(
+            name="fakessh",
+            port=1234,
+            connection=EngineConnectionConfig(
+                type="ssh", user="developer", host_alias="agent-sandbox-fakessh"
+            ),
+        )
+        engine_web = EngineManifest(
+            name="opencode",
+            port=4096,
+            connection=EngineConnectionConfig(type="web", url="http://127.0.0.1:4096"),
+        )
+        # MR2 has no ssh adapter yet; the adapter only supplies compose_env here.
+        adapter = OpencodeAdapter()
+        runtimes = (
+            EngineRuntime(manifest=engine_ssh, adapter=adapter, config=adapter.default_config()),
+            EngineRuntime(manifest=engine_web, adapter=adapter, config=adapter.default_config()),
+        )
+        config = SandboxConfig()
+        override_file = os.path.join(self.temp_dir, "docker-compose.override.yml")
+        fake_pub = "/tmp/fake-agent-sandbox/id_ed25519.pub"
+
+        with mock.patch(
+            "agent_sandbox.compose.generator.ensure_ssh_keypair",
+            return_value=Path(fake_pub),
+        ) as mock_keygen:
+            yaml_out = generate_compose_override(
+                active_engines=[engine_ssh, engine_web],
+                config=config,
+                repo_root=self.repo_root,
+                sandbox_dir=self.sandbox_dir,
+                override_file=override_file,
+                fs_root=self.fs_root,
+                engine_runtimes=runtimes,
+            )
+
+        parsed = yaml.safe_load(yaml_out)
+        ssh_volumes = parsed["services"]["fakessh"]["volumes"]
+        self.assertIn(f"{fake_pub}:/etc/sandbox/ssh/authorized_keys:ro", ssh_volumes)
+        mock_keygen.assert_called_once()
+        self.assertIs(mock_keygen.call_args[0][0], engine_ssh)
+
+        # Web engines are unchanged: no authorized_keys mount.
+        web_volumes = parsed["services"]["opencode"]["volumes"]
+        self.assertFalse(any("authorized_keys" in v for v in web_volumes))
 
 
 if __name__ == "__main__":

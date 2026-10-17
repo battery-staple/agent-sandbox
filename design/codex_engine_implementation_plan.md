@@ -24,7 +24,7 @@ Electron emulation.
 
 | ID | Decision |
 |----|----------|
-| D1 | sshd inside the container; dedicated per-engine ed25519 keypair managed by agent-sandbox; `Include`d per-engine SSH config; per-engine `known_hosts`. |
+| D1 | sshd inside the container; dedicated per-engine ed25519 keypair managed by agent-sandbox; a marker-wrapped `Host` block prepended into `~/.ssh/config`; per-engine `known_hosts`. |
 | D2 | Container auth = **`codex login --device-auth` only** (ChatGPT subscription). No API key. Never share the host `~/.codex`. |
 | D3 | Pin `CODEX_VERSION` at build; **plus** a host-vs-container version mismatch warning. Automatic app-version matching deferred. |
 | D4 | Unify engine connection config: replace `web_url` with a `connection` object; migrate opencode/antigravity to `connection: {type: web, url}`. |
@@ -39,7 +39,7 @@ Electron emulation.
 macOS host                                   │  Docker container "agent-sandbox-codex"
   agent-sandbox CLI (Python)                 │   entrypoint → sshd (port 58434)
   ~/.agent-sandbox/codex/ssh/  (key, config) │   ~/.codex  → named volume agent_home_codex
-  ~/.ssh/config  (Include)                   │     config.toml  (danger-full-access, on-request, file store)
+  ~/.ssh/config  (prepended Host block)      │     config.toml  (danger-full-access, on-request, file store)
   ChatGPT.app / Codex.app  ──ssh──────────────▶  codex app-server (spawned by the app's SSH flow)
       ▲  deep link / permissions UI          │   codex login --device-auth → auth.json (in volume)
       └─ approvals & chat rendered here      │
@@ -115,24 +115,32 @@ loads and validates.
 
 **Files**
 - new `packages/agent-sandbox/src/agent_sandbox/ssh.py`:
-  - `ensure_ssh_connection(manifest, sandbox_dir) -> Path`:
-    - generate ed25519 keypair at `~/.agent-sandbox/<engine>/ssh/id_ed25519`
-      (0600) + `.pub` if missing;
-    - write `~/.agent-sandbox/<engine>/ssh/config`:
-      ```
-      Host <host_alias>
-          HostName 127.0.0.1
-          Port <port>
-          User <user>
-          IdentityFile ~/.agent-sandbox/<engine>/ssh/id_ed25519
-          IdentitiesOnly yes
-          StrictHostKeyChecking accept-new
-          HostKeyAlias <host_alias>
-          UserKnownHostsFile ~/.agent-sandbox/<engine>/ssh/known_hosts
-      ```
-    - idempotently ensure a single `Include ~/.agent-sandbox/<engine>/ssh/config`
-      line exists in `~/.ssh/config` (create file/dir as needed);
-    - return the path to the public key (for the container mount).
+  - `ensure_ssh_keypair(manifest, sandbox_dir) -> Path`: generate ed25519 keypair
+    at `~/.agent-sandbox/<engine>/ssh/id_ed25519` (0600) + `.pub` if missing;
+    returns the public key path (for the container mount).
+  - `ensure_ssh_client_config(manifest, sandbox_dir, fs_root=None) -> Path`:
+    prepend a marker-wrapped literal block into `~/.ssh/config`:
+    ```
+    # >>> agent-sandbox:<engine> >>>
+    Host <host_alias>
+        HostName 127.0.0.1
+        Port <port>
+        User <user>
+        IdentityFile ~/.agent-sandbox/<engine>/ssh/id_ed25519
+        IdentitiesOnly yes
+        StrictHostKeyChecking accept-new
+        HostKeyAlias <host_alias>
+        UserKnownHostsFile ~/.agent-sandbox/<engine>/ssh/known_hosts
+    # <<< agent-sandbox:<engine> <<<
+    ```
+    Idempotent replace-then-prepend, atomic write (`tempfile.mkstemp` + `os.replace`
+    in `~/.ssh/`), `~/.ssh` `0700` / config `0600`. A prepended literal block — not
+    an `Include` — because OpenSSH resolves **first-match-wins** (an appended block
+    loses to a user's `Host *`) and the Codex desktop app discovers hosts by
+    scanning `~/.ssh/config` literally (an `Include`d alias may not appear in its
+    picker). `fs_root` is injectable so tests never touch the real `~/.ssh/config`.
+  - `remove_ssh_client_config(manifest, sandbox_dir, fs_root=None) -> bool`:
+    remove this engine's marker block (enables a future `agent-sandbox detach`).
 - `packages/agent-sandbox/src/agent_sandbox/compose/generator.py` — when
   `manifest.connection.type == "ssh"`, mount the generated public half read-only
   into the container at a fixed staging path
@@ -142,7 +150,7 @@ loads and validates.
   `preflight_warnings(self, sandbox_dir: Path) -> tuple[str, ...]` (default `()`).
 - `packages/agent-sandbox/src/agent_sandbox/cli.py`:
   - `cmd_ui`: branch on `connection.type` — `web` = today; `ssh` = ensure running,
-    `ensure_ssh_connection`, best-effort `codex features enable remote_connections`
+    `ensure_ssh_client_config`, best-effort `codex features enable remote_connections`
     if `codex` on PATH, `open -a ChatGPT` (fallback `Codex`),
     `open "codex://settings/connections/ssh/add?name=<host_alias>"`, print the one
     manual step ("choose your workspace folder").
@@ -152,13 +160,15 @@ loads and validates.
   - new generic command `shell` (usage `shell <engine> [-- <cmd>…]`) →
     `docker exec -it agent-sandbox-<engine> <cmd…>` (default an interactive shell).
     Used for `codex login --device-auth` and debugging.
-- Tests: `ssh.py` unit tests (key perms, config content, Include idempotency),
+- Tests: `ssh.py` unit tests (key perms, prepended block content/order,
+  idempotent replace, atomic write + perms, removal),
   generator test for the ssh public-key mount, CLI tests for `ui`/`status`
   branching and `shell` arg construction, adapter-hook default.
 
-**Acceptance:** a synthetic ssh-manifest engine produces a valid SSH config + key,
-the compose override mounts its public key, `ui` performs the ssh branch, and
-`shell` builds the right `docker exec` argv. Web engines unchanged.
+**Acceptance:** a synthetic ssh-manifest engine produces a keypair and a
+prepended managed `Host` block that wins over a user's `Host *`, the compose
+override mounts its public key, `ui` performs the ssh branch, and `shell` builds
+the right `docker exec` argv. Web engines unchanged.
 
 ### MR3 — `codex` engine definition + adapter
 
@@ -236,9 +246,9 @@ the compose override mounts its public key, `ui` performs the ssh branch, and
   subprocess); `test_engines.py` registration.
 
 **Acceptance:** `agent-sandbox build codex` succeeds; `start codex` creates the
-container with sshd on 58434; `ssh -F ~/.agent-sandbox/codex/ssh/config agent-sandbox-codex
-'command -v codex && codex --version'` works on a non-interactive login shell;
-`ui codex` configures and launches the app with the deep link.
+container with sshd on 58434; `ssh agent-sandbox-codex 'command -v codex && codex
+--version'` works on a non-interactive login shell; `ui codex` configures and
+launches the app with the deep link.
 
 ### MR4 — Docs
 

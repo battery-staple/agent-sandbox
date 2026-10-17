@@ -18,6 +18,7 @@ from .framework import CLIApp, argument, generate_completion_script, option
 from .registry.engines import discover_engines
 from .skills.catalog import CatalogSkillResolver
 from .skills.directory import DirectorySkillResolver
+from .ssh import ensure_ssh_client_config
 
 
 def get_repo_root() -> str:
@@ -65,6 +66,12 @@ def resolve_sandbox_entries(cli: SandboxCLI) -> list[str]:
         if os.environ.get("AGENT_SANDBOX_DEBUG"):
             print(f"[Completion Debug] resolve_sandbox_entries error: {exc}", file=sys.stderr)
         return []
+
+
+def ssh_endpoint(engine: EngineManifest) -> str:
+    """Formats an ssh engine's connection endpoint for start/status output."""
+    conn = engine.connection
+    return f"SSH: {conn.user}@127.0.0.1:{engine.port} (alias {conn.host_alias})"
 
 
 app = CLIApp(name="agent-sandbox")
@@ -195,8 +202,6 @@ class SandboxCLI:
         cmd.extend(compose_args)
 
         env = os.environ.copy()
-        env["HOST_UID"] = str(os.getuid() if hasattr(os, "getuid") else 1000)
-        env["HOST_GID"] = str(os.getgid() if hasattr(os, "getgid") else 1000)
         env["HOST_IPC_PATH"] = self.ipc_dir
 
         res = subprocess.run(cmd, env=env, check=False)
@@ -357,6 +362,11 @@ class SandboxCLI:
         active_names = [e.name for e in active]
         print(f"[Sandbox] Preparing engines: {', '.join(active_names)}")
 
+        # Surface adapter preflight warnings before launching containers.
+        for runtime in active_runtimes:
+            for warning in runtime.adapter.preflight_warnings(Path(self.sandbox_dir)):
+                print(f"[Sandbox Warning] {warning}", file=sys.stderr)
+
         # 1. Compile rules
         for e in active:
             compile_rules_for_engine(e, repo_root=self.repo_root, sandbox_dir=self.sandbox_dir)
@@ -382,7 +392,10 @@ class SandboxCLI:
         if code == 0:
             print("[Sandbox] Containers started successfully:")
             for e in active:
-                print(f"  - [{e.name.upper()}] Web UI: {e.connection.url} (Port {e.port})")
+                if e.connection.type == "ssh":
+                    print(f"  - [{e.name.upper()}] {ssh_endpoint(e)}")
+                else:
+                    print(f"  - [{e.name.upper()}] Web UI: {e.connection.url} (Port {e.port})")
         return code
 
     def _ensure_services_in_override(self, engines: Sequence[EngineManifest]) -> None:
@@ -537,7 +550,11 @@ class SandboxCLI:
         for runtime in all_runtimes:
             manifest = runtime.manifest
             state = "RUNNING" if manifest.name in running_names else "STOPPED"
-            print(f"  - {manifest.name:<14} [{state:<7}] URL: {manifest.connection.url}")
+            if manifest.connection.type == "ssh":
+                endpoint = ssh_endpoint(manifest)
+            else:
+                endpoint = f"URL: {manifest.connection.url}"
+            print(f"  - {manifest.name:<14} [{state:<7}] {endpoint}")
             for line in runtime.adapter.status_lines(runtime.config):
                 print(f"      {line}")
 
@@ -593,6 +610,9 @@ class SandboxCLI:
             print(f"[Sandbox] Engine '{target_engine.name}' is not running. Starting...")
             self.cmd_start([target_engine.name])
 
+        if target_engine.connection.type == "ssh":
+            return self._open_ssh_ui(target_engine)
+
         url = target_engine.connection.url
         print(f"[Sandbox] Opening {target_engine.name} Web UI ({url})...")
         runtime = get_runtime(all_runtimes, target_engine.name)
@@ -605,6 +625,35 @@ class SandboxCLI:
                 subprocess.run(["xdg-open", url], check=False)
             else:
                 print(f"[Sandbox] Please open {url} in your browser.")
+        return 0
+
+    def _open_ssh_ui(self, engine: EngineManifest) -> int:
+        """Configures the host SSH client and launches the desktop-app deep-link flow."""
+        try:
+            config_path = ensure_ssh_client_config(engine, self.sandbox_dir, fs_root=self.fs_root)
+        except (RuntimeError, ValueError, OSError) as exc:
+            print(f"[Sandbox Error] {exc}", file=sys.stderr)
+            return 1
+        print(f"[Sandbox] SSH client config ready: {config_path}")
+
+        # Best-effort: enable the app feature flag when codex is installed.
+        if shutil.which("codex"):
+            subprocess.run(["codex", "features", "enable", "remote_connections"], check=False)
+
+        deep_link = f"codex://settings/connections/ssh/add?name={engine.connection.host_alias}"
+        if sys.platform == "darwin":
+            app_name = "ChatGPT" if os.path.isdir("/Applications/ChatGPT.app") else "Codex"
+            launched = subprocess.run(["open", "-a", app_name], check=False)
+            if launched.returncode == 0:
+                subprocess.run(["open", deep_link], check=False)
+            else:
+                print(
+                    f"[Sandbox] Could not launch the '{app_name}' desktop app. "
+                    f"Install ChatGPT/Codex, then open: {deep_link}"
+                )
+        else:
+            print(f"[Sandbox] Open this link in the desktop app: {deep_link}")
+        print("[Sandbox] Choose your workspace folder in the app to finish.")
         return 0
 
     @ws_group.command(
@@ -763,6 +812,39 @@ class SandboxCLI:
             if shutil.which("xdg-open"):
                 subprocess.run(["xdg-open", dest], check=False)
         return 0
+
+    @app.command(
+        "shell",
+        help="Run an interactive shell (or a command) inside a running engine container",
+        custom_usage="shell <engine> [command...]",
+    )
+    @argument("engine_name", required=True, help="Engine name", complete=resolve_engines)
+    @argument("command", nargs="*", required=False, help="Command to run (default: bash -l)")
+    def cmd_shell(self, engine_name: str, command: list[str] | None = None) -> int:
+        try:
+            self.registry.get(engine_name)
+        except KeyError as exc:
+            print(f"[Sandbox Error] {exc}", file=sys.stderr)
+            return 1
+
+        if engine_name not in {m.name for m in self.get_running_engines()}:
+            print(
+                f"[Sandbox Error] Engine '{engine_name}' container is not running. "
+                f"Start it first: agent-sandbox start {engine_name}",
+                file=sys.stderr,
+            )
+            return 1
+
+        argv = [
+            "docker",
+            "exec",
+            "-it",
+            "--user",
+            "developer",
+            f"{CONTAINER_NAME_PREFIX}{engine_name}",
+            *(command or ["bash", "-l"]),
+        ]
+        return subprocess.run(argv, check=False).returncode
 
     @hb_group.command("start", aliases=["--bg", "-d"], help="Start Host-Exec daemon in background")
     def cmd_host_bridge_start(self) -> int:

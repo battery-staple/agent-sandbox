@@ -10,6 +10,7 @@ from ..config.models import EngineManifest, SandboxConfig
 from ..engines import CONTAINER_NAME_PREFIX, EngineRuntime, get_adapter, get_runtime
 from ..skills.catalog import CatalogSkillResolver
 from ..skills.directory import DirectorySkillResolver
+from ..ssh import CONTAINER_AUTHORIZED_KEYS, ensure_ssh_keypair
 from .common import load_compose_common
 from .rules import compile_rules_for_engine
 
@@ -115,6 +116,12 @@ def generate_compose_override(
             # Host-Exec shared auth secret directory
             IPC_VOLUME_SPEC,
         ]
+
+        # SSH remote engines: mount the generated public key read-only so the
+        # entrypoint can install it as authorized_keys (web engines unchanged).
+        if engine.connection.type == "ssh":
+            pub_key_path = ensure_ssh_keypair(engine, norm_sandbox)
+            volumes.append(f"{pub_key_path}:{CONTAINER_AUTHORIZED_KEYS}:ro")
 
         # 1. Engine config mounts
         for m in engine.mounts:
