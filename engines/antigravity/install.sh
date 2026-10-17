@@ -19,9 +19,9 @@ if [ -z "$TARGET_ARCH" ]; then
 fi
 
 if [ "$TARGET_ARCH" = "amd64" ]; then
-    LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.16.0-4917332007583744/linux-x64/Antigravity.tar.gz"
+    LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.23.1-6348059836284928/linux-x64/Antigravity.tar.gz"
 else
-    LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.16.0-4917332007583744/linux-arm/Antigravity.tar.gz"
+    LS_URL="https://storage.googleapis.com/antigravity-public/antigravity-hub/2.23.1-6348059836284928/linux-arm/Antigravity.tar.gz"
 fi
 
 echo "[Antigravity] Installing Language Server ($TARGET_ARCH) from $LS_URL..."
