@@ -452,7 +452,11 @@ on showAlert(argv)
 
         set labelDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, labelCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
         set valueDict to current application's NSDictionary's dictionaryWithObjects:{regularFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
-        set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName}
+        try
+            set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol, 1.5} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName, current application's NSBaselineOffsetAttributeName}
+        on error
+            set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName}
+        end try
         set noteDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, noteCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
 
         set titleFont to current application's NSFont's boldSystemFontOfSize:24.0
@@ -479,8 +483,7 @@ on showAlert(argv)
                     else
                         set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:labelDict
                         if kStr contains "Directory" or kStr contains "Request" or kStr contains "Trajectory" then
-                            set paddedVal to (" " & vStr & " ")
-                            set vPart to current application's NSAttributedString's alloc()'s initWithString:paddedVal attributes:monoDict
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:monoDict
                         else
                             set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:valueDict
                         end if
@@ -494,6 +497,25 @@ on showAlert(argv)
             end if
         end repeat
 
+        -- First pass: Set attributed informative text and configure wrapping
+        repeat with aView in (alertWin's contentView()'s subviews())
+            if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
+                set curVal to (aView's stringValue() as text)
+                if not (curVal contains "Host Execution") then
+                    try
+                        aView's setAllowsEditingTextAttributes:true
+                        aView's cell()'s setWraps:true
+                        aView's setPreferredMaxLayoutWidth:580
+                        aView's setAttributedStringValue:attrStr
+                    end try
+                end if
+            end if
+        end repeat
+
+        -- Re-layout so NSAlert wraps informative text and recalculates window dimensions
+        theAlert's layout()
+
+        -- Second pass: Apply 24pt bold title after layout so NSAlert layout does not reset it
         repeat with aView in (alertWin's contentView()'s subviews())
             if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
                 set curVal to (aView's stringValue() as text)
@@ -502,12 +524,6 @@ on showAlert(argv)
                         aView's setAllowsEditingTextAttributes:true
                         aView's setAttributedStringValue:titlePart
                         aView's setFont:titleFont
-                        aView's sizeToFit()
-                    end try
-                else if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
-                    try
-                        aView's setAllowsEditingTextAttributes:true
-                        aView's setAttributedStringValue:attrStr
                         aView's sizeToFit()
                     end try
                 end if
