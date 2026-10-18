@@ -401,6 +401,8 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NSBackgroundColorAttributeName", script)
         self.assertIn("NSBaselineOffsetAttributeName", script)
         self.assertIn("setPreferredMaxLayoutWidth:580", script)
+        self.assertIn("effectiveAppearance()", script)
+        self.assertIn("colorWithWhite:0.0 alpha:0.08", script)
         self.assertIn("boldSystemFontOfSize:24.0", script)
         self.assertIn("controlBackgroundColor()", script)
         self.assertIn("setFrameOrigin:", script)
