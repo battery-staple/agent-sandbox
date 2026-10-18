@@ -448,11 +448,16 @@ on showAlert(argv)
         set labelCol to current application's NSColor's secondaryLabelColor()
         set valueCol to current application's NSColor's labelColor()
         set noteCol to current application's NSColor's systemOrangeColor()
+        set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.4
 
         set labelDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, labelCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
         set valueDict to current application's NSDictionary's dictionaryWithObjects:{regularFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
-        set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName}
         set noteDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, noteCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+
+        set titleFont to current application's NSFont's boldSystemFontOfSize:24.0
+        set titleDict to current application's NSDictionary's dictionaryWithObjects:{titleFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set titlePart to current application's NSAttributedString's alloc()'s initWithString:"Host Execution Request" attributes:titleDict
 
         set promptParas to paragraphs of prompt_text
         repeat with aPara in promptParas
@@ -474,7 +479,8 @@ on showAlert(argv)
                     else
                         set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:labelDict
                         if kStr contains "Directory" or kStr contains "Request" or kStr contains "Trajectory" then
-                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:monoDict
+                            set paddedVal to (" " & vStr & " ")
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:paddedVal attributes:monoDict
                         else
                             set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:valueDict
                         end if
@@ -491,19 +497,22 @@ on showAlert(argv)
         repeat with aView in (alertWin's contentView()'s subviews())
             if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
                 set curVal to (aView's stringValue() as text)
-                if curVal is "Host Execution Request" then
+                if curVal contains "Host Execution" then
                     try
-                        aView's setFont:(current application's NSFont's boldSystemFontOfSize:20.0)
+                        aView's setAllowsEditingTextAttributes:true
+                        aView's setAttributedStringValue:titlePart
+                        aView's setFont:titleFont
                         aView's sizeToFit()
                     end try
                 else if curVal contains "Directory:" or curVal contains "Request:" or curVal contains "Trajectory:" then
-                    aView's setAllowsEditingTextAttributes:true
-                    aView's setAttributedStringValue:attrStr
-                    aView's sizeToFit()
+                    try
+                        aView's setAllowsEditingTextAttributes:true
+                        aView's setAttributedStringValue:attrStr
+                        aView's sizeToFit()
+                    end try
                 end if
             end if
         end repeat
-        theAlert's layout()
     end try
 
     -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
