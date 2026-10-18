@@ -327,6 +327,32 @@ def resolve_cwd(
     return resolved_host_home
 
 
+def path_within_workspaces(path: str, workspaces: Optional[List[str]]) -> bool:
+    """Return True when ``path`` is inside one of the allowed workspace roots.
+
+    Containment is evaluated on real paths with symlinks resolved, so a
+    symlink placed inside a workspace cannot be used to escape it. An
+    empty/absent workspace list means "no workspace restriction" (the
+    historical behaviour).
+    """
+    if not workspaces:
+        return True
+    try:
+        real_path = os.path.realpath(path)
+    except OSError:
+        return False
+    for workspace in workspaces:
+        if not isinstance(workspace, str) or not workspace:
+            continue
+        try:
+            real_workspace = os.path.realpath(workspace)
+        except OSError:
+            continue
+        if real_path == real_workspace or real_path.startswith(real_workspace.rstrip(os.sep) + os.sep):
+            return True
+    return False
+
+
 COCOA_DIALOG_SCRIPT = """use AppleScript version "2.4"
 use framework "Foundation"
 use framework "AppKit"
@@ -999,6 +1025,26 @@ class HostExecServer:
             # 5. Resolve Effective Working Directory on Host (home fallback if path is absent,
             #    warning with both the in-container and out-of-container directory)
             effective_cwd = resolve_cwd(raw_cwd, prefix)
+
+            # 5b. Confine execution to the whitelisted workspaces. An empty
+            #     workspace list preserves the historical unrestricted behaviour.
+            allowed_workspaces = whitelist.get("allowed_workspaces") or []
+            if not path_within_workspaces(effective_cwd, allowed_workspaces):
+                logging.warning(
+                    "%s Working directory '%s' is outside the allowed workspaces %s; rejecting request",
+                    prefix,
+                    effective_cwd,
+                    allowed_workspaces,
+                )
+                await self.send_json(writer, {
+                    "status": "error",
+                    "error_type": "cwd_not_allowed",
+                    "message": (
+                        f"Working directory '{effective_cwd}' is outside the allowed "
+                        "workspaces in ~/.agent-sandbox/whitelist.yaml"
+                    ),
+                })
+                return
 
             # 6. Interactive User Approval (Serialized via approval_lock)
             if needs_approval:
