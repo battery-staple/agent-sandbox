@@ -451,25 +451,19 @@ on showAlert(argv)
 
         set isDark to false
         try
-            set appMode to (alertWin's effectiveAppearance()'s name() as text)
-            if appMode contains "Dark" then
+            set sysMode to (current application's NSUserDefaults's standardUserDefaults()'s stringForKey:"AppleInterfaceStyle")
+            if sysMode is not missing value and (sysMode as text) is "Dark" then
                 set isDark to true
             end if
-        on error
+        end try
+        if not isDark then
             try
-                set appMode to (curApp's effectiveAppearance()'s name() as text)
-                if appMode contains "Dark" then
+                set appName to (alertWin's effectiveAppearance()'s |name|() as text)
+                if appName contains "Dark" then
                     set isDark to true
                 end if
-            on error
-                try
-                    set sysMode to (current application's NSUserDefaults's standardUserDefaults()'s stringForKey:"AppleInterfaceStyle")
-                    if sysMode is "Dark" then
-                        set isDark to true
-                    end if
-                end try
             end try
-        end try
+        end if
 
         if isDark then
             set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.4
