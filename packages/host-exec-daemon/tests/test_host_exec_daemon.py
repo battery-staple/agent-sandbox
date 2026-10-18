@@ -398,6 +398,8 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("terminal.fill", script)
         self.assertIn("SFMono-Medium", script)
         self.assertIn("NSMutableAttributedString", script)
+        self.assertIn("NSBackgroundColorAttributeName", script)
+        self.assertIn("boldSystemFontOfSize:24.0", script)
         self.assertIn("controlBackgroundColor()", script)
         self.assertIn("setFrameOrigin:", script)
         self.assertIn("runModalForWindow:", script)
