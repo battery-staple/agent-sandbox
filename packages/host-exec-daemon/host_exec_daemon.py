@@ -36,6 +36,37 @@ HOST_EXEC_PORT: Optional[int] = None
 MAX_CONCURRENT_HOST_PROCESSES = int(os.environ.get("MAX_CONCURRENT_HOST_PROCESSES", "16"))
 
 
+def describe_bind_exposure(bind_address: str) -> Optional[str]:
+    """Return a warning when a bind address reaches beyond the loopback interface.
+
+    The bridge is authenticated only by the shared HMAC secret, so binding a
+    wildcard address exposes it to every host the machine can be reached from.
+    ``HOST_EXEC_BIND=127.0.0.1`` is the tightly scoped option, but the default
+    stays permissive because the sandbox reaches the daemon through
+    ``host.docker.internal`` (the Docker gateway), which is not reachable when
+    the daemon listens on loopback only.
+    """
+    normalized = (bind_address or "").strip().lower()
+    wildcard_addresses = {"", "0.0.0.0", "::", "*", "0:0:0:0:0:0:0:0", "::0"}
+    if normalized in wildcard_addresses:
+        return (
+            "Host-Exec Daemon is binding a wildcard address (%s); the bridge is "
+            "reachable from any interface and is authenticated only by its HMAC "
+            "secret. Set HOST_EXEC_BIND=127.0.0.1 and forward the port if the "
+            "sandbox can reach the loopback interface, or restrict access with a "
+            "host firewall." % (bind_address or "*")
+        )
+    return None
+
+
+def warn_if_bind_is_exposed(bind_address: str) -> Optional[str]:
+    """Emit an exposure warning for a wildcard bind address; return the message."""
+    message = describe_bind_exposure(bind_address)
+    if message:
+        logging.warning(message)
+    return message
+
+
 def get_required_port() -> int:
     """Read the bridge port from the runtime environment without a fallback."""
     value = os.environ.get("HOST_EXEC_PORT")
@@ -1167,6 +1198,8 @@ async def main_async():
     secret = get_or_create_secret()
     server_instance = get_default_server(secret)
     initial_whitelist = load_whitelist()
+
+    warn_if_bind_is_exposed(HOST_EXEC_BIND)
 
     tcp_server = await asyncio.start_server(
         server_instance.handle_client,
