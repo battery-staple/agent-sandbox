@@ -570,7 +570,7 @@ on showAlert(argv)
         alertWin's setHidesOnDeactivate:false
     end try
 
-    -- Position at top-right of active screen (screen with mouse cursor)
+    -- Position horizontally centered and slightly above vertical center of active screen
     try
         set mouseLoc to current application's NSEvent's mouseLocation()
         set allScreens to current application's NSScreen's screens()
@@ -645,8 +645,8 @@ on showAlert(argv)
             end try
         end try
 
-        set posX to vx + vw - winW - 24
-        set posY to vy + vh - winH - 24
+        set posX to vx + ((vw - winW) / 2)
+        set posY to vy + ((vh - winH) * 0.6)
         try
             alertWin's setFrameOrigin:{posX, posY}
         on error
