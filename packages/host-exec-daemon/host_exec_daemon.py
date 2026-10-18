@@ -725,6 +725,18 @@ end showAlert
 """
 
 
+# Fallback dialog used when the Cocoa NSAlert is unavailable. User-controlled
+# text (the command display, working directory, note, ...) is passed as argv and
+# never interpolated into the script source, so it cannot alter the program.
+FALLBACK_DIALOG_SCRIPT = """on run argv
+    set thePrompt to item 1 of argv
+    set theDefault to item 2 of argv
+    display dialog thePrompt default answer theDefault with title "Agent Sandbox Host Execution Request" buttons {"Deny", "Approve"} default button "Deny" with icon caution
+    return button returned of result
+end run
+"""
+
+
 async def prompt_user_approval_async(
     command_name: str,
     args: List[str],
@@ -782,27 +794,22 @@ async def prompt_user_approval_async(
         stderr_text = str(e)
         logging.warning("Cocoa alert failed: %s; falling back to display dialog", e)
 
-    # 2. Fallback: Standard AppleScript dialog
+    # 2. Fallback: Standard AppleScript dialog. User-controlled text is passed
+    #    through argv rather than interpolated into the script, so arguments,
+    #    cwd or notes cannot inject AppleScript.
     try:
-        escaped_prompt = prompt_text.replace("\\", "\\\\").replace('"', '\\"')
+        prompt_with_error = prompt_text
         if stderr_text:
-            cleaned_err = stderr_text.replace("\\", "\\\\").replace('"', '\\"')
-            escaped_prompt += f"\\n\\n[Cocoa Alert Error: {cleaned_err}]"
-        escaped_cmd = cmd_display.replace("\\", "\\\\").replace('"', '\\"')
-        fallback_script = (
-            f'display dialog "{escaped_prompt}" '
-            f'default answer "{escaped_cmd}" '
-            f'with title "Agent Sandbox Host Execution Request" '
-            f'buttons {{"Deny", "Approve"}} default button "Deny" with icon caution'
-        )
+            prompt_with_error += f"\n\n[Cocoa Alert Error: {stderr_text}]"
         proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e", fallback_script,
+            "osascript", "-e", FALLBACK_DIALOG_SCRIPT,
+            prompt_with_error, cmd_display,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout_bytes, _ = await proc.communicate()
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
-        return proc.returncode == 0 and stdout_text.startswith("button returned:Approve")
+        return proc.returncode == 0 and stdout_text == "Approve"
     except Exception as e:
         logging.error("Failed to prompt user via osascript fallback: %s", e)
         return False
