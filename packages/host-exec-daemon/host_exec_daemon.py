@@ -220,6 +220,24 @@ def verify_token(req_dict: Dict[str, Any], token: str, secret: str) -> bool:
     return hmac.compare_digest(expected_canonical, token)
 
 
+def build_args_match_string(args: List[str]) -> str:
+    """Serialize an argument vector for whitelist-policy matching.
+
+    The policy regex is matched against this string with ``re.fullmatch`` and
+    with ``re.DOTALL`` left **disabled**, so ``.`` can never span an argument
+    boundary. A pattern therefore authorizes exactly the number of arguments
+    whose boundaries it explicitly consumes. This closes the
+    ``whitelisted && malicious`` hole where a policy such as
+    ``^--flag=\\d+.*$`` would otherwise swallow an attacker-supplied extra
+    argument when matched against a space-joined command line.
+
+    Multi-argument patterns must account for each boundary explicitly (for
+    example with ``\\s`` or ``[\\s\\S]``); a pattern that opts into matching
+    everything can enable DOTALL with the ``(?s)`` prefix.
+    """
+    return "\n".join(args)
+
+
 def translate_container_path(
     path: Optional[str],
     container_home: Optional[str] = None,
@@ -948,9 +966,14 @@ class HostExecServer:
             auto_regex = policy.get("auto_args_regex")
             approval_regex = policy.get("approval_args_regex")
 
+            # Match against a newline-joined vector (DOTALL disabled) so a
+            # wildcard cannot span argument boundaries and authorize extra,
+            # attacker-chosen arguments. See build_args_match_string().
+            match_str = build_args_match_string(args)
+
             approval_note = ""
-            auto_matches = bool(auto_regex and re.fullmatch(auto_regex, args_str))
-            approval_matches = bool(approval_regex and re.fullmatch(approval_regex, args_str))
+            auto_matches = bool(auto_regex and re.fullmatch(auto_regex, match_str))
+            approval_matches = bool(approval_regex and re.fullmatch(approval_regex, match_str))
 
             if approval_matches and auto_matches:
                 logging.warning(

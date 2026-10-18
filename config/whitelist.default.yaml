@@ -6,6 +6,13 @@ allowed_workspaces: []
 #   auto_args_regex: Arguments regex that execute automatically without approval
 #   approval_args_regex: Arguments regex requiring interactive macOS approval dialog
 # If arguments match both, approval_args_regex takes precedence as a fail-safe.
+#
+# Matching semantics: the regex is applied with re.fullmatch to the argument
+# vector joined by newlines, with re.DOTALL disabled. A wildcard such as `.*`
+# therefore cannot span an argument boundary, so a pattern authorizes exactly
+# the arguments whose boundaries it explicitly consumes. Multi-argument
+# patterns must consume each boundary explicitly (e.g. `\s` or `[\s\S]`); a
+# pattern that intentionally matches anything can opt in with the `(?s)` prefix.
 allowed_commands:
   xcodebuild:
     binary_path: /usr/bin/xcodebuild
@@ -13,11 +20,11 @@ allowed_commands:
     description: Apple Xcode build system and SDK inspection
   open:
     binary_path: /usr/bin/open
-    auto_args_regex: ^(-a Simulator|https?://.*)$
+    auto_args_regex: ^(-a\s+Simulator|https?://.*)$
     description: Open URLs or macOS applications (e.g. Simulator)
   git-credential-osxkeychain:
     binary_path: /usr/bin/git
-    approval_args_regex: ^credential-osxkeychain (get|store|erase)$
+    approval_args_regex: ^credential-osxkeychain\s+(get|store|erase)$
     description: macOS Keychain Git credential helper
   sw_vers:
     binary_path: /usr/bin/sw_vers
