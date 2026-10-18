@@ -448,7 +448,34 @@ on showAlert(argv)
         set labelCol to current application's NSColor's secondaryLabelColor()
         set valueCol to current application's NSColor's labelColor()
         set noteCol to current application's NSColor's systemOrangeColor()
-        set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.4
+
+        set isDark to false
+        try
+            set appMode to (alertWin's effectiveAppearance()'s name() as text)
+            if appMode contains "Dark" then
+                set isDark to true
+            end if
+        on error
+            try
+                set appMode to (curApp's effectiveAppearance()'s name() as text)
+                if appMode contains "Dark" then
+                    set isDark to true
+                end if
+            on error
+                try
+                    set sysMode to (current application's NSUserDefaults's standardUserDefaults()'s stringForKey:"AppleInterfaceStyle")
+                    if sysMode is "Dark" then
+                        set isDark to true
+                    end if
+                end try
+            end try
+        end try
+
+        if isDark then
+            set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.4
+        else
+            set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.08
+        end if
 
         set labelDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, labelCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
         set valueDict to current application's NSDictionary's dictionaryWithObjects:{regularFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
