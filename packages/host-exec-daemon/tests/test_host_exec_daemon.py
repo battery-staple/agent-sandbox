@@ -18,6 +18,7 @@ PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, PACKAGE_DIR)
 
 from host_exec_daemon import (
+    FALLBACK_DIALOG_SCRIPT,
     PID_FILE_PATH,
     cleanup,
     format_log_prefix,
@@ -489,10 +490,7 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
 
         # 2nd call (Fallback display dialog) succeeds
         proc_fallback = AsyncMock()
-        proc_fallback.communicate.return_value = (
-            b"button returned:Approve, text returned:git push origin main\n",
-            b"",
-        )
+        proc_fallback.communicate.return_value = (b"Approve\n", b"")
         proc_fallback.returncode = 0
 
         mock_exec.side_effect = [proc_cocoa, proc_fallback]
@@ -504,10 +502,11 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_exec.call_count, 2)
 
         fallback_args = mock_exec.call_args_list[1][0]
-        fallback_script = fallback_args[2]
-        self.assertIn("display dialog", fallback_script)
-        self.assertIn('default answer "git push origin main"', fallback_script)
-        self.assertIn("Working Directory: /Users/example/project", fallback_script)
+        # The script is a constant; user-controlled text is passed via argv.
+        self.assertEqual(fallback_args[2], FALLBACK_DIALOG_SCRIPT)
+        self.assertEqual(fallback_args[4], "git push origin main")
+        self.assertIn("Working Directory: /Users/example/project", fallback_args[3])
+        self.assertNotIn("git push origin main", fallback_args[2])
 
     @patch("asyncio.create_subprocess_exec")
     async def test_prompt_fallback_denial_with_approve_in_command(self, mock_exec):
@@ -516,10 +515,7 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         proc_cocoa.returncode = 1
 
         proc_fallback = AsyncMock()
-        proc_fallback.communicate.return_value = (
-            b'button returned:Deny, text returned:git commit -m "Approve release"\n',
-            b"",
-        )
+        proc_fallback.communicate.return_value = (b"Deny\n", b"")
         proc_fallback.returncode = 0
 
         mock_exec.side_effect = [proc_cocoa, proc_fallback]
