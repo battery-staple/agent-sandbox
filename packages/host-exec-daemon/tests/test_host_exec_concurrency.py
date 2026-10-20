@@ -39,29 +39,29 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
             "allowed_commands": {
                 "echo": {
                     "binary_path": sys.executable,
-                    "auto_args_regex": "^.*$",
+                    "auto_args_regex": "(?s)^.*$",
                     "description": "Echo command via python",
                 },
                 "slow_cmd": {
                     "binary_path": sys.executable,
-                    "auto_args_regex": "^.*$",
+                    "auto_args_regex": "(?s)^.*$",
                     "description": "Slow sleep command",
                 },
                 "approval_cmd": {
                     "binary_path": sys.executable,
-                    "approval_args_regex": "^.*$",
+                    "approval_args_regex": "(?s)^.*$",
                     "description": "Command requiring interactive approval",
                 },
                 "subcommand_tool": {
                     "binary_path": sys.executable,
-                    "auto_args_regex": "^-c .*print.*(auto|status).*$",
-                    "approval_args_regex": "^-c .*print.*(approval|push).*$",
+                    "auto_args_regex": "^-c\\s+.*print.*(auto|status).*$",
+                    "approval_args_regex": "^-c\\s+.*print.*(approval|push).*$",
                     "description": "Subcommand tool with dual regexes",
                 },
                 "overlapping_tool": {
                     "binary_path": sys.executable,
-                    "auto_args_regex": "^-c .*print.*(overlap|auto).*$",
-                    "approval_args_regex": "^-c .*print.*(overlap|approval).*$",
+                    "auto_args_regex": "^-c\\s+.*print.*(overlap|auto).*$",
+                    "approval_args_regex": "^-c\\s+.*print.*(overlap|approval).*$",
                     "description": "Tool where patterns overlap",
                 },
             },
@@ -370,7 +370,7 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         updated_whitelist = dict(self.initial_whitelist)
         updated_whitelist["allowed_commands"]["new_tool"] = {
             "binary_path": sys.executable,
-            "auto_args_regex": "^.*$",
+            "auto_args_regex": "(?s)^.*$",
             "description": "Newly added tool",
         }
         with open(self.whitelist_path, "w", encoding="utf-8") as f:
@@ -527,8 +527,8 @@ class TestHostExecConcurrency(unittest.IsolatedAsyncioTestCase):
         sub_info = allowed_cmds.get("subcommand_tool", {})
         self.assertIn("auto_args_regex", sub_info)
         self.assertIn("approval_args_regex", sub_info)
-        self.assertEqual(sub_info["auto_args_regex"], "^-c .*print.*(auto|status).*$")
-        self.assertEqual(sub_info["approval_args_regex"], "^-c .*print.*(approval|push).*$")
+        self.assertEqual(sub_info["auto_args_regex"], "^-c\\s+.*print.*(auto|status).*$")
+        self.assertEqual(sub_info["approval_args_regex"], "^-c\\s+.*print.*(approval|push).*$")
 
 
 if __name__ == "__main__":
