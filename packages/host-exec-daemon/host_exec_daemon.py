@@ -646,7 +646,7 @@ on showAlert(argv)
         end try
 
         set posX to vx + ((vw - winW) / 2)
-        set posY to vy + ((vh - winH) * 0.6)
+        set posY to vy + ((vh - winH) * 0.8)
         try
             alertWin's setFrameOrigin:{posX, posY}
         on error
