@@ -314,50 +314,370 @@ use framework "Foundation"
 use framework "AppKit"
 use scripting additions
 
+property modalResult : "Deny"
+
 on run argv
+    if not (current application's NSThread's isMainThread()) as boolean then
+        my performSelectorOnMainThread:"showAlert:" withObject:argv waitUntilDone:true
+    else
+        my showAlert(argv)
+    end if
+    return modalResult
+end run
+
+on showAlert(argv)
     set cmd_display to item 1 of argv
     set prompt_text to item 2 of argv
 
+    set curApp to current application's NSApplication's sharedApplication()
+    try
+        curApp's setActivationPolicy:(current application's NSApplicationActivationPolicyAccessory)
+    on error
+        try
+            curApp's setActivationPolicy:1
+        end try
+    end try
+
     set theAlert to current application's NSAlert's alloc()'s init()
-    theAlert's setMessageText:"Agent Sandbox Host Execution Request"
+    theAlert's setMessageText:"Host Execution Request"
     theAlert's setInformativeText:prompt_text
-    theAlert's setAlertStyle:2
+    theAlert's setAlertStyle:1
 
-    theAlert's addButtonWithTitle:"Deny"
-    theAlert's addButtonWithTitle:"Approve"
+    -- Icon: Use system terminal icon instead of generic application folder
+    try
+        set sfIcon to current application's NSImage's imageWithSystemSymbolName:"terminal.fill" accessibilityDescription:"Host Exec"
+        if sfIcon is not missing value then
+            theAlert's setIcon:sfIcon
+        end if
+    end try
 
-    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    set denyBtn to theAlert's addButtonWithTitle:"Deny"
+    set approveBtn to theAlert's addButtonWithTitle:"Approve"
+
+    try
+        denyBtn's setKeyEquivalent:(character id 27)
+    end try
+    try
+        approveBtn's setKeyEquivalent:(character id 13)
+    end try
+
+    -- Dynamic height for code block
+    set cmdLen to length of cmd_display
+    set boxH to 60
+    if cmdLen > 65 then
+        set boxH to 88
+    end if
+    if cmdLen > 150 then
+        set boxH to 130
+    end if
+
+    set scrollView to current application's NSScrollView's alloc()'s initWithFrame:{{0, 0}, {580, boxH}}
     scrollView's setHasVerticalScroller:true
     scrollView's setHasHorizontalScroller:false
     scrollView's setAutohidesScrollers:true
-    scrollView's setBorderType:2
+    scrollView's setBorderType:1
 
-    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {440, 70}}
+    try
+        scrollView's setDrawsBackground:true
+        scrollView's setBackgroundColor:(current application's NSColor's controlBackgroundColor())
+        scrollView's setWantsLayer:true
+        scrollView's |layer|()'s setCornerRadius:8.0
+    end try
+
+    set textView to current application's NSTextView's alloc()'s initWithFrame:{{0, 0}, {580, boxH}}
     textView's setString:cmd_display
     textView's setEditable:false
     textView's setSelectable:true
-    textView's setDrawsBackground:true
-    textView's setTextContainerInset:{width:6, height:6}
-    textView's textContainer()'s setWidthTracksTextView:true
-
+    textView's setDrawsBackground:false
     try
-        set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
+        textView's setTextColor:(current application's NSColor's labelColor())
+    end try
+    try
+        textView's setTextContainerInset:{9, 12}
+    end try
+
+    -- Modern typography: SFMono-Medium 14pt, fall back gracefully
+    try
+        set monoFont to current application's NSFont's fontWithName:"SFMono-Medium" |size|:14.0
+        if monoFont is missing value then error
     on error
-        set monoFont to current application's NSFont's userFixedPitchFontOfSize:12.0
+        try
+            set monoFont to current application's NSFont's fontWithName:"SF Mono" |size|:14.0
+            if monoFont is missing value then error
+        on error
+            try
+                set monoFont to current application's NSFont's monospacedSystemFontOfSize:14.0 weight:(current application's NSFontWeightMedium)
+                if monoFont is missing value then error
+            on error
+                try
+                    set monoFont to current application's NSFont's monospacedSystemFontOfSize:12.0 weight:0.0
+                on error
+                    try
+                        set monoFont to current application's NSFont's fontWithName:"Menlo-Bold" |size|:13.0
+                    on error
+                        set monoFont to current application's NSFont's userFixedPitchFontOfSize:13.0
+                    end try
+                end try
+            end try
+        end try
     end try
     textView's setFont:monoFont
 
     scrollView's setDocumentView:textView
     theAlert's setAccessoryView:scrollView
 
-    current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
-    set modalResult to theAlert's runModal()
-    if modalResult = 1001 then
-        return "Approve"
+    -- Layout to calculate window geometry
+    theAlert's layout()
+    set alertWin to theAlert's |window|()
+
+    -- Apply rich typography to the informative text field
+    try
+        set attrStr to current application's NSMutableAttributedString's alloc()'s initWithString:""
+        set boldFont to current application's NSFont's boldSystemFontOfSize:17.0
+        set regularFont to current application's NSFont's systemFontOfSize:17.0
+        
+        set monoFont11 to current application's NSFont's fontWithName:"SFMono-Regular" |size|:15.5
+        if monoFont11 is missing value then
+            try
+                set monoFont11 to current application's NSFont's monospacedSystemFontOfSize:15.5 weight:0.0
+            on error
+                set monoFont11 to current application's NSFont's userFixedPitchFontOfSize:15.5
+            end try
+        end if
+
+        set labelCol to current application's NSColor's secondaryLabelColor()
+        set valueCol to current application's NSColor's labelColor()
+        set noteCol to current application's NSColor's systemOrangeColor()
+
+        set isDark to false
+        try
+            set sysMode to (current application's NSUserDefaults's standardUserDefaults()'s stringForKey:"AppleInterfaceStyle")
+            if sysMode is not missing value and (sysMode as text) is "Dark" then
+                set isDark to true
+            end if
+        end try
+        if not isDark then
+            try
+                set appName to (alertWin's effectiveAppearance()'s |name|() as text)
+                if appName contains "Dark" then
+                    set isDark to true
+                end if
+            end try
+        end if
+
+        if isDark then
+            set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.4
+        else
+            set pathBgCol to current application's NSColor's colorWithWhite:0.0 alpha:0.08
+        end if
+
+        set labelDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, labelCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set valueDict to current application's NSDictionary's dictionaryWithObjects:{regularFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        try
+            set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol, 1.5} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName, current application's NSBaselineOffsetAttributeName}
+        on error
+            set monoDict to current application's NSDictionary's dictionaryWithObjects:{monoFont11, valueCol, pathBgCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName, current application's NSBackgroundColorAttributeName}
+        end try
+        set noteDict to current application's NSDictionary's dictionaryWithObjects:{boldFont, noteCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+
+        set titleFont to current application's NSFont's boldSystemFontOfSize:24.0
+        set titleDict to current application's NSDictionary's dictionaryWithObjects:{titleFont, valueCol} forKeys:{current application's NSFontAttributeName, current application's NSForegroundColorAttributeName}
+        set titlePart to current application's NSAttributedString's alloc()'s initWithString:"Host Execution Request" attributes:titleDict
+
+        set promptParas to paragraphs of prompt_text
+        repeat with aPara in promptParas
+            set lineText to (aPara as text)
+            if length of lineText > 0 then
+                if (attrStr's |length|()) > 0 then
+                    set nl to current application's NSAttributedString's alloc()'s initWithString:(character id 10) attributes:valueDict
+                    attrStr's appendAttributedString:nl
+                end if
+
+                set colonOffset to offset of ": " in lineText
+                if colonOffset > 0 then
+                    set kStr to (text 1 through (colonOffset + 1) of lineText)
+                    set vStr to (text (colonOffset + 2) through -1 of lineText)
+                    
+                    if kStr starts with "Note" then
+                        set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:noteDict
+                        set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:noteDict
+                    else
+                        set kPart to current application's NSAttributedString's alloc()'s initWithString:kStr attributes:labelDict
+                        if kStr contains "Directory" or kStr contains "Request" or kStr contains "Trajectory" then
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:monoDict
+                        else
+                            set vPart to current application's NSAttributedString's alloc()'s initWithString:vStr attributes:valueDict
+                        end if
+                    end if
+                    attrStr's appendAttributedString:kPart
+                    attrStr's appendAttributedString:vPart
+                else
+                    set pPart to current application's NSAttributedString's alloc()'s initWithString:lineText attributes:valueDict
+                    attrStr's appendAttributedString:pPart
+                end if
+            end if
+        end repeat
+
+        -- First pass: Set attributed informative text and configure wrapping
+        repeat with aView in (alertWin's contentView()'s subviews())
+            if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
+                set curVal to (aView's stringValue() as text)
+                if not (curVal contains "Host Execution") then
+                    try
+                        aView's setAllowsEditingTextAttributes:true
+                        aView's cell()'s setWraps:true
+                        aView's setPreferredMaxLayoutWidth:580
+                        aView's setAttributedStringValue:attrStr
+                    end try
+                end if
+            end if
+        end repeat
+
+        -- Re-layout so NSAlert wraps informative text and recalculates window dimensions
+        theAlert's layout()
+
+        -- Second pass: Apply 24pt bold title after layout so NSAlert layout does not reset it
+        repeat with aView in (alertWin's contentView()'s subviews())
+            if (aView's isKindOfClass:(current application's NSTextField's |class|())) as boolean then
+                set curVal to (aView's stringValue() as text)
+                if curVal contains "Host Execution" then
+                    try
+                        aView's setAllowsEditingTextAttributes:true
+                        aView's setAttributedStringValue:titlePart
+                        aView's setFont:titleFont
+                        aView's sizeToFit()
+                    end try
+                end if
+            end if
+        end repeat
+    end try
+
+    -- Window Level: NSStatusWindowLevel = 25 (floats above normal and modal windows)
+    try
+        alertWin's setLevel:(current application's NSStatusWindowLevel)
+    on error
+        try
+            alertWin's setLevel:25
+        end try
+    end try
+
+    -- Collection Behavior: CanJoinAllSpaces (1) + FullScreenAuxiliary (256) = 257
+    try
+        alertWin's setCollectionBehavior:257
+    end try
+
+    try
+        alertWin's setHidesOnDeactivate:false
+    end try
+
+    -- Position horizontally centered and slightly above vertical center of active screen
+    try
+        set mouseLoc to current application's NSEvent's mouseLocation()
+        set allScreens to current application's NSScreen's screens()
+        set targetScreen to current application's NSScreen's mainScreen()
+
+        set mouseX to 0
+        set mouseY to 0
+        try
+            set mouseX to x of mouseLoc
+            set mouseY to y of mouseLoc
+        on error
+            try
+                set mouseX to item 1 of mouseLoc
+                set mouseY to item 2 of mouseLoc
+            end try
+        end try
+
+        repeat with aScreen in allScreens
+            set sFrame to aScreen's frame()
+            set sx to 0
+            set sy to 0
+            set sw to 0
+            set sh to 0
+            try
+                set sx to x of origin of sFrame
+                set sy to y of origin of sFrame
+                set sw to width of size of sFrame
+                set sh to height of size of sFrame
+            on error
+                try
+                    set sx to item 1 of item 1 of sFrame
+                    set sy to item 2 of item 1 of sFrame
+                    set sw to item 1 of item 2 of sFrame
+                    set sh to item 2 of item 2 of sFrame
+                end try
+            end try
+            if mouseX >= sx and mouseX <= (sx + sw) and mouseY >= sy and mouseY <= (sy + sh) then
+                set targetScreen to aScreen
+                exit repeat
+            end if
+        end repeat
+
+        set vFrame to targetScreen's visibleFrame()
+        set vx to 0
+        set vy to 0
+        set vw to 0
+        set vh to 0
+        try
+            set vx to x of origin of vFrame
+            set vy to y of origin of vFrame
+            set vw to width of size of vFrame
+            set vh to height of size of vFrame
+        on error
+            try
+                set vx to item 1 of item 1 of vFrame
+                set vy to item 2 of item 1 of vFrame
+                set vw to item 1 of item 2 of vFrame
+                set vh to item 2 of item 2 of vFrame
+            end try
+        end try
+
+        set winFrame to alertWin's frame()
+        set winW to 580
+        set winH to 280
+        try
+            set winW to width of size of winFrame
+            set winH to height of size of winFrame
+        on error
+            try
+                set winW to item 1 of item 2 of winFrame
+                set winH to item 2 of item 2 of winFrame
+            end try
+        end try
+
+        set posX to vx + ((vw - winW) / 2)
+        set posY to vy + ((vh - winH) * 0.6)
+        try
+            alertWin's setFrameOrigin:{posX, posY}
+        on error
+            try
+                alertWin's setFrameOrigin:{x:posX, y:posY}
+            end try
+        end try
+    end try
+
+    -- Play alert chime
+    try
+        current application's NSBeep()
+    end try
+
+    try
+        alertWin's orderFrontRegardless()
+    end try
+
+    alertWin's makeKeyAndOrderFront:missing value
+    try
+        curApp's activateIgnoringOtherApps:true
+    end try
+    set modalRes to curApp's runModalForWindow:alertWin
+    alertWin's orderOut:missing value
+
+    if modalRes = 1001 then
+        set modalResult to "Approve"
     else
-        return "Deny"
+        set modalResult to "Deny"
     end if
-end run
+end showAlert
 """
 
 
@@ -381,22 +701,22 @@ async def prompt_user_approval_async(
         context_lines.append(f"Note: {note}")
     if container_cwd:
         context_lines.append(f"In-Container Directory: {container_cwd}")
-    if cwd:
-        context_lines.append(f"Out-of-Container Working Directory: {cwd}")
+        if cwd:
+            context_lines.append(f"Out-of-Container Working Directory: {cwd}")
+    elif cwd:
+        context_lines.append(f"Working Directory: {cwd}")
     if traj_id:
         context_lines.append(f"Trajectory: {traj_id}")
     if req_id:
         context_lines.append(f"Request: {req_id}")
 
-    prompt_parts = [
-        "Agent Sandbox is requesting to execute the following command on your macOS host:"
-    ]
+    prompt_parts = []
     if context_lines:
         prompt_parts.append("\n".join(context_lines))
-    prompt_parts.append("Do you authorize this execution?")
-    prompt_text = "\n\n".join(prompt_parts)
+    prompt_text = "\n\n".join(prompt_parts) if prompt_parts else "Do you authorize this execution?"
 
     # 1. Primary: Native Cocoa NSAlert with monospaced, read-only NSTextView codeblock
+    stderr_text = ""
     try:
         proc = await asyncio.create_subprocess_exec(
             "osascript", "-e", COCOA_DIALOG_SCRIPT, cmd_display, prompt_text,
@@ -405,20 +725,25 @@ async def prompt_user_approval_async(
         )
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
         if proc.returncode == 0 and stdout_text in ("Approve", "Deny"):
             return stdout_text == "Approve"
 
         logging.warning(
             "Cocoa alert returned code %d (stderr: %s); falling back to display dialog",
             proc.returncode,
-            stderr_bytes.decode("utf-8", errors="replace").strip(),
+            stderr_text,
         )
     except Exception as e:
+        stderr_text = str(e)
         logging.warning("Cocoa alert failed: %s; falling back to display dialog", e)
 
     # 2. Fallback: Standard AppleScript dialog
     try:
         escaped_prompt = prompt_text.replace("\\", "\\\\").replace('"', '\\"')
+        if stderr_text:
+            cleaned_err = stderr_text.replace("\\", "\\\\").replace('"', '\\"')
+            escaped_prompt += f"\\n\\n[Cocoa Alert Error: {cleaned_err}]"
         escaped_cmd = cmd_display.replace("\\", "\\\\").replace('"', '\\"')
         fallback_script = (
             f'display dialog "{escaped_prompt}" '
