@@ -407,7 +407,7 @@ class TestPromptUserApprovalAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("boldSystemFontOfSize:24.0", script)
         self.assertIn("controlBackgroundColor()", script)
         self.assertIn("((vw - winW) / 2)", script)
-        self.assertIn("((vh - winH) * 0.6)", script)
+        self.assertIn("((vh - winH) * 0.8)", script)
         self.assertIn("setFrameOrigin:", script)
         self.assertIn("runModalForWindow:", script)
         self.assertIn("denyBtn's setKeyEquivalent:(character id 27)", script)
