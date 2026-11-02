@@ -44,4 +44,11 @@ done
 
 # /run/sshd: privilege-separation dir; /var/empty: sshd's privsep chroot target.
 mkdir -p /run/sshd /var/empty
+
+# SSH sessions get a fresh environment, rather than the container's environment.
+# Restore only the public bridge endpoint; authentication stays in its mounted file.
+# Regenerate on every start so Compose remains the source of configuration.
+python3 "$(dirname "${BASH_SOURCE[0]}")/ssh-environment.py" \
+  > /etc/ssh/sshd_config.d/00-host-exec-environment.conf
+/usr/sbin/sshd -t
 exec /usr/sbin/sshd -D -e
