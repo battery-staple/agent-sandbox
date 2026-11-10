@@ -14,7 +14,8 @@ export TMPDIR="${TMPDIR:-${SANDBOX_HOME}/.sandbox-tmp}"
 if [ "$(id -u)" = "0" ]; then
     mkdir -p "$TMPDIR" "$SANDBOX_HOME/.npm-global" "$SANDBOX_HOME/.gradle" \
              "$SANDBOX_HOME/go/bin" "$SANDBOX_HOME/.codex" "$SANDBOX_HOME/.agents" \
-             "$SANDBOX_HOME/.ssh" /workspace 2>/dev/null || true
+             "$SANDBOX_HOME/.ssh" "$SANDBOX_HOME/.local/bin" "$SANDBOX_HOME/.local/opt" \
+             "$SANDBOX_HOME/.cache" /workspace 2>/dev/null || true
     chown "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME" 2>/dev/null || true
     # Scoped + idempotent: only wrong-owner entries are chowned, only under the
     # dirs we manage (never a blind `chown -R` over large caches).
@@ -23,6 +24,16 @@ if [ "$(id -u)" = "0" ]; then
              "$SANDBOX_HOME/.ssh" "$SANDBOX_HOME/.config"; do
         [ -e "$d" ] || continue
         find "$d" \! -user "$SANDBOX_USER" -exec chown "$SANDBOX_USER:$SANDBOX_USER" {} + 2>/dev/null || true
+    done
+    # Rootless install prefixes (npm --prefix, pip --user, sandbox-pkg) live under
+    # ~/.local. Docker creates the parents of the engine config bind mounts
+    # (e.g. ~/.local/share/opencode) as root, which leaves ~/.local itself
+    # unwritable by the container user. Repair the parents non-recursively: a
+    # recursive walk would descend into those bind mounts and chown host files.
+    for d in "$SANDBOX_HOME/.local" "$SANDBOX_HOME/.local/bin" \
+             "$SANDBOX_HOME/.local/opt" "$SANDBOX_HOME/.cache"; do
+        [ -d "$d" ] || continue
+        chown "$SANDBOX_USER:$SANDBOX_USER" "$d" 2>/dev/null || true
     done
 fi
 

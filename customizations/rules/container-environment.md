@@ -23,3 +23,12 @@ You are operating inside a secure, isolated Linux container (Ubuntu 24.04) runni
   ```yaml
   browser_mode: auto  # auto | host | container
   ```
+
+## 4. Installing Packages (No Root Needed)
+- Your home directory `/home/developer` is a persistent volume; the rest of the container filesystem is discarded whenever the engine is recreated. Install everything under your home.
+- **Language toolchains**: `npm install -g` writes to `~/.npm-global`, `pip install --user` to `~/.local`, and `go install` / `cargo install` / `gem install --user-install` to their home prefixes.
+- **Distro binaries**: use `sandbox-pkg get <package>`. It downloads the Ubuntu package into a user-owned cache, extracts it under `~/.local/opt/sandbox-pkg/<package>/<version>`, and links its executables into `~/.local/bin`, which is already on `PATH`. It never runs package maintainer scripts and never needs root.
+  - `sandbox-pkg list` shows what is installed; `sandbox-pkg remove <package>` uninstalls it.
+  - It downloads from the Ubuntu archive, so it needs network access (see engine-specific command approval settings).
+- **Avoid `sudo` / `apt-get install`**: system-layer installs do not survive container recreation, and they are outside this sandbox's rootless install policy.
+- If a task genuinely needs a system-level dependency at image-build time, ask the user to add it to `Dockerfile.sandbox` and rebuild with `agent-sandbox build`.
