@@ -139,6 +139,22 @@ User modifications and package caches persist in engine-isolated named Docker vo
 - `pip install --user <pkg>` installs to `~/.local` and persists across container rebuilds.
 - `~/.gradle` and `~/go` module caches persist across container restarts.
 
+### 2.1 System Packages Without Root
+Ubuntu's `apt` needs root because it writes `/var/lib/dpkg` and runs package maintainer scripts. [`sandbox-pkg`](guest/bin/sandbox-pkg) avoids both: it downloads `.deb` payloads through a user-owned index cache, extracts them under `~/.local/opt/sandbox-pkg/<package>/<version>`, and links their executables into `~/.local/bin` (already on `PATH`).
+
+```bash
+sandbox-pkg get ncdu               # bundle dependencies the image does not provide
+sandbox-pkg get --no-deps fd-find  # payload only
+sandbox-pkg list                   # show sandbox-pkg installs
+sandbox-pkg remove fd-find         # delete launchers, prefix, and manifest entry
+```
+
+No root, no maintainer scripts, and no changes to the system dpkg database, so installs persist in the engine home volume while a plain `apt-get install` would vanish with the container layer. Two limits are worth knowing:
+- Packages that hardcode absolute data paths (e.g. `/usr/share/figlet`) may need their own data-dir environment variable; self-contained CLIs work best.
+- Only dependencies missing from the image are bundled. If a package needs a newer version of an already-installed library, prefer building at image level.
+
+For anything heavier than a CLI payload, add it to [`Dockerfile.sandbox`](Dockerfile.sandbox) and rebuild with `agent-sandbox build`.
+
 ### 3. Container-First Customizations: Rules & Skills
 The sandbox automatically discovers and integrates agent skills and rules without exposing host files:
 - **Rule Compilation Hierarchy**: Deterministically aggregates built-in common rules (`customizations/rules/*.md`), common user rules (`~/.agent-sandbox/common/rules/*.md`), built-in engine rules (`engines/<engine>/rules/*.md`), engine user rules (`~/.agent-sandbox/<engine>/rules/*.md`), and host global rules, shadowing them into the container without modifying host files.
